@@ -16,7 +16,3 @@
 !CSF_Spectronaut/*.fish
 !K562_Spectronaut/*.R
 !K562_Spectronaut/*.fish
-
-# Ignore runner scratch files.
-CSF_Spectronaut/.runner_tmp/
-K562_Spectronaut/.runner_tmp/
