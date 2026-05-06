@@ -1,0 +1,22 @@
+# Ignore everything by default.
+*
+
+# Track repository metadata and ignore rules.
+!.gitignore
+
+# Track the shared benchmark helper used by Spectronaut scripts.
+!benchmark_experiments_functions.R
+
+# Track Spectronaut code folders.
+!CSF_Spectronaut/
+!K562_Spectronaut/
+
+# Track code only inside Spectronaut folders.
+!CSF_Spectronaut/*.R
+!CSF_Spectronaut/*.fish
+!K562_Spectronaut/*.R
+!K562_Spectronaut/*.fish
+
+# Ignore runner scratch files.
+CSF_Spectronaut/.runner_tmp/
+K562_Spectronaut/.runner_tmp/
