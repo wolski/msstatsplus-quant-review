@@ -43,8 +43,56 @@ swap_condition_labels = function(input, sample_proteins_sig, sample_proteins_ins
     as.data.frame(mixup_run), by="originalRUN", all.x=TRUE, all.y=FALSE
   )
   input = rbindlist(list(sig, insig), use.names=TRUE)
-  
+
   return(input)
+}
+
+#' Swap condition labels on MSstats long-format input (pre-dataProcess)
+#'
+#' Equivalent to \code{swap_condition_labels} but operates on the
+#' SpectronauttoMSstatsFormat / DIANNtoMSstatsFormat long table, before
+#' summarization. Required columns: \code{Run}, \code{Condition},
+#' \code{ProteinName}. \code{Order} is derived from \code{Run} as
+#' \code{as.integer(str_split_i(Run, "Seq", 2))} to match the convention used
+#' elsewhere in this benchmark.
+#'
+#' @param input data.frame/data.table in MSstats long format.
+#' @param sample_proteins_sig Proteins that retain their original Condition.
+#' @param sample_proteins_insig Proteins whose Condition is swapped on every
+#'   second run within each condition.
+swap_condition_labels_msstats = function(input,
+                                          sample_proteins_sig,
+                                          sample_proteins_insig){
+  input = as.data.table(input)
+
+  run_table = unique(input[, .(Run, Condition)])
+  run_table[, Order := as.integer(str_split_i(Run, "Seq", 2))]
+  setorder(run_table, Order)
+
+  cond1_idx = which(run_table$Condition == "Condition1")
+  cond2_idx = which(run_table$Condition == "Condition2")
+  flip1 = cond1_idx[seq(2, length(cond1_idx), by = 2)]
+  flip2 = cond2_idx[seq(2, length(cond2_idx), by = 2)]
+
+  r1 = run_table$Run[flip1]
+  r2 = run_table$Run[flip2]
+
+  # Swap the Run identifier itself for paired runs (mirrors the msqrob2
+  # variant in prepare_data_for_msqrob). Each Run name then still maps to
+  # exactly one Condition, so dataProcess sees consistent (Run, Condition)
+  # pairs. Condition is read from the original (Run -> Condition) table.
+  partner = setNames(run_table$Run, run_table$Run)
+  partner[r1] = r2
+  partner[r2] = r1
+
+  cond_for_run = setNames(run_table$Condition, run_table$Run)
+
+  sig = input[ProteinName %in% sample_proteins_sig]
+  insig = input[ProteinName %in% sample_proteins_insig]
+  insig[, Run := partner[Run]]
+  insig[, Condition := cond_for_run[Run]]
+
+  rbindlist(list(sig, insig), use.names = TRUE)
 }
 
 #' Prepare benchmark data for MSqRob analysis with controlled label/run swapping

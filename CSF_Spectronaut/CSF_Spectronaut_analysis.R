@@ -14,11 +14,11 @@ library(limpa)
 library(DEqMS)
 
 # Functions for data conversion/method comparison
-source("benchmark_experiments_functions.R")
+source("../benchmark_experiments_functions.R")
 
 ## Load + prepare inputs -------------------------------------------------------
 # Load data
-data_folder = ""
+data_folder = "."
 annotation = fread(paste(data_folder, "CSF_annotation.csv", sep="/"))
 
 # Prepare annotation info

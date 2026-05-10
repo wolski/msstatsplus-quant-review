@@ -14,19 +14,19 @@ library(limpa)
 library(DEqMS)
 
 # Functions for data conversion/method comparison
-source("benchmark_experiments_functions.R")
+source("../benchmark_experiments_functions.R")
 
 ## Load + prepare inputs -------------------------------------------------------
 # Load data
-data_folder = ""
+data_folder = "."
 data_file = "20250130_163144_CSF dilutions Jan 2025 no normalization_Report.tsv"
-raw_input = fread(paste(data_folder, data_file, sep="/"), sep="\t")
+raw_input = fread(file.path(data_folder, data_file), sep="\t")
 
-annotation = fread(paste(data_folder, "CSF_annotation.csv", sep="/"))
+annotation = fread(file.path(data_folder, "CSF_annotation.csv"))
 
 # Prepare annotation info
-raw_input = raw_input[raw_input$R.Condition != "Blank",]
-annotation = annotation[annotation$Condition != "Blank",]
+raw_input = raw_input[tolower(raw_input$R.Condition) != "blank",]
+annotation = annotation[tolower(annotation$Condition) != "blank",]
 annotation$Run = annotation$R.FileName
 run_order = unique(annotation[, .(Run, Order)])
 
@@ -58,8 +58,8 @@ msstats_input = MSstatsConvert::SpectronauttoMSstatsFormat(
   runOrder=run_order,
   max_depth="auto",
   numberOfCores=12)
-fwrite(msstats_input, file=paste(data_folder, "MSstats+",
-                                 "MSstats+_input.csv", sep="/"))
+fwrite(msstats_input,
+       file=file.path(data_folder, "MSstats+", "MSstats+_input.csv"))
 
 summarized = dataProcess(msstats_input,
                          normalization=FALSE,
@@ -69,8 +69,8 @@ summarized = dataProcess(msstats_input,
                          summaryMethod="linear",
                          numberOfCores = 12)
 
-save(summarized, file=paste(data_folder, "MSstats+",
-                            "MSstats+_summarized.rda", sep="/"))
+save(summarized,
+     file=file.path(data_folder, "MSstats+", "MSstats+_summarized.rda"))
 
 # Swap condition labels for TP/TN analysis
 weighted_input = summarized$ProteinLevelData
@@ -98,8 +98,8 @@ msstatsplus_model$ComparisonResult$Label = ifelse(
   "Positive", "Negative")
 
 msstatsplus_model = msstatsplus_model$ComparisonResult
-fwrite(msstatsplus_model, file=paste(data_folder, "MSstats+", 
-                                     "MSstats+_model_swap.csv", sep="/"))
+fwrite(msstatsplus_model,
+       file=file.path(data_folder, "MSstats+", "MSstats+_model.csv"))
 
 print("MSstats+ finished")
 
@@ -109,7 +109,7 @@ base_msstats_input = MSstatsConvert::SpectronauttoMSstatsFormat(
   excludedFromQuantificationFilter = TRUE,
   filter_with_Qvalue = TRUE)
 fwrite(base_msstats_input, 
-       file=paste(data_folder, "MSstats", "MSstats_input.csv", sep="/"))
+       file=file.path(data_folder, "MSstats", "MSstats_input.csv"))
 
 base_msstats_input = as.data.frame(base_msstats_input) %>% 
   filter(Condition != "Blank")
@@ -122,14 +122,16 @@ base_msstats_summarized = dataProcess(base_msstats_input,
                                  summaryMethod="TMP",
                                  numberOfCores = 12)
 save(base_msstats_summarized, 
-     file=paste(data_folder, "MSstats", "MSstats_summarized.rda", sep="/"))
+     file=file.path(data_folder, "MSstats", "MSstats_summarized.rda"))
 
 # Swap condition labels for TP/TN analysis
 weighted_input = base_msstats_summarized$ProteinLevelData
 weighted_input$Order = as.integer(
   str_split_i(weighted_input$originalRUN, "Seq", 2))
 
-weighted_input = swap_condition_labels(weighted_input, protein_swap_list)
+weighted_input = swap_condition_labels(weighted_input,
+                                       true_positives,
+                                       true_negatives)
 
 weighted_input$Order = NULL
 base_msstats_summarized$ProteinLevelData = weighted_input
@@ -148,13 +150,13 @@ msstats_model = groupComparison(comparison, base_msstats_summarized,
                                 numberOfCores=12)
 
 msstats_model$ComparisonResult$Label = ifelse(
-  msstats_model$ComparisonResult$Protein %in% sample_proteins_sig,
+  msstats_model$ComparisonResult$Protein %in% true_positives,
   "Positive", "Negative")
 
 msstats_model = msstats_model$ComparisonResult
 
 fwrite(msstats_model, 
-       file=paste(data_folder, "MSstats", "MSstats_model.csv", sep="/"))
+       file=file.path(data_folder, "MSstats", "MSstats_model.csv"))
 
 print("MSstats finished")
 # MSqRob ----------------------------------------------------------------------
@@ -206,17 +208,17 @@ L = makeContrast("conditionCondition2=0",
                  parameterNames = c("conditionCondition2",
                                     "conditionCondition1"))
 pe = hypothesisTest(object = pe, i = "protein", contrast = L)
-save(pe, file=paste(data_folder, "msqrob2", "msqrob_obj.rda", sep="/"))
+save(pe, file=file.path(data_folder, "msqrob2", "msqrob_obj.rda"))
 
 msqrob2_model = rowData(pe[["protein"]])$`conditionCondition2`
 
 msqrob2_model$Label = ifelse(
-  rownames(msqrob2_model) %in% sample_proteins_sig, "Positive", "Negative")
+  rownames(msqrob2_model) %in% true_positives, "Positive", "Negative")
 
 msqrob2_model$Protein = rownames(msqrob2_model)
 
-fwrite(msqrob2_model, file=paste(data_folder, "msqrob2", 
-                                 "msqrob2_model.csv", sep="/"))
+fwrite(msqrob2_model,
+       file=file.path(data_folder, "msqrob2", "msqrob2_model.csv"))
 
 print("msqrob finished")
 
@@ -264,8 +266,7 @@ limma_model$adj.pvalue = p.adjust(limma_model$pvalue, method = 'BH')
 limma_model$Label = ifelse(
   limma_model$Protein %in% true_positives, "Positive", "Negative")
 
-fwrite(limma_model, file=paste(data_folder, "limma", 
-                               "limma_model.csv", sep="/"))
+fwrite(limma_model, file=file.path(data_folder, "limma", "limma_model.csv"))
 
 print("limma finished")
 
@@ -315,17 +316,16 @@ rownames(limpa_model) = NULL
 limpa_model$adj.pvalue = p.adjust(limpa_model$pvalue, method = 'BH')
 
 limpa_model$Label = ifelse(
-  limpa_model$Protein %in% sample_proteins_sig, "Positive", "Negative")
+  limpa_model$Protein %in% true_positives, "Positive", "Negative")
 
-fwrite(limpa_model, file=paste(data_folder, "limpa",
-                               "limpa_model.csv", sep="/"))
+fwrite(limpa_model, file=file.path(data_folder, "limpa", "limpa_model.csv"))
 
 print("limpa finished")
 # DEqMS ------------------------------------------------------------------------
 deqms_input = prepare_data_for_deqms(merged_input, true_positives, true_negatives)
 
 # Adjusted DEqMS::medianSummary function without ref_col
-summarize = function (dat, group_col = 2) 
+summarize_deqms_no_ref_col = function (dat, group_col = 2) 
 {
   dat.ratio = dat
   dat.ratio[, 3:ncol(dat)] = dat.ratio[, 3:ncol(dat)] - 
@@ -339,7 +339,7 @@ summarize = function (dat, group_col = 2)
   return(dat.new)
 }
 
-deqms_summarized = summarize(deqms_input, group_col=1)
+deqms_summarized = summarize_deqms_no_ref_col(deqms_input, group_col=1)
 
 pep_count = deqms_input %>% group_by(PG.ProteinGroups)%>%
   summarise(count=n_distinct(Feature),.groups = 'drop') %>%
@@ -378,10 +378,9 @@ rownames(deqms_model) = NULL
 deqms_model$adj.pvalue = p.adjust(deqms_model$pvalue, method = 'BH')
 
 deqms_model$Label = ifelse(
-  deqms_model$Protein %in% sample_proteins_sig, "Positive", "Negative")
+  deqms_model$Protein %in% true_positives, "Positive", "Negative")
 
-fwrite(deqms_model, file=paste(data_folder, "DEqMS", 
-                               "deqms_model.csv", sep="/"))
+fwrite(deqms_model, file=file.path(data_folder, "DEqMS", "deqms_model.csv"))
 
 print("DeqMS finished")
 # mapDIA -----------------------------------------------------------------------
@@ -395,7 +394,7 @@ mapdia_input$Sample_info = paste(mapdia_input$Condition,
                                  mapdia_input$BioReplicate, sep="_")
 
 rt_data = mapdia_input %>% group_by(EG.ModifiedSequence, Fragment) %>% 
-  summarize(mean_rt = mean(EG.ApexRT))
+  dplyr::summarize(mean_rt = mean(EG.ApexRT))
 
 mapdia_input = mapdia_input %>% select(PG.ProteinGroups, EG.ModifiedSequence, 
                                        Fragment, Sample_info, F.PeakArea) %>%
@@ -410,17 +409,7 @@ mapdia_input = mapdia_input %>%
   select(id_cols, sort(setdiff(names(.), id_cols)))
 
 fwrite(mapdia_input, 
-       file=paste(data_folder, "mapDIA", "CSF_input_file.txt", sep="/"), 
+       file=file.path(data_folder, "mapDIA", "CSF_input_file.txt"), 
        sep="\t")
 
-# Extract model results
-mapdia_model = fread(
-  file=paste(data_folder, "mapDIA", "analysis_output.txt", sep="/"),sep="\t")
-
-mapdia_model$Label = ifelse(
-  mapdia_model$Protein %in% true_positives, "Positive", "Negative")
-
-fwrite(mapdia_model, file=paste(data_folder, "mapDIA", 
-                                "mapdia_model.csv", sep="/"))
-
-print("mapDIA finished")
+message("mapDIA is run externally; preserving existing mapDIA/mapdia_model.csv")
