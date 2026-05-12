@@ -24,22 +24,16 @@ if (normalization == "equalizeMedians") {
 }
 apply_quantile = (normalization == "quantile")
 
-## Pre-compute the shared inputs ----------------------------------------------
-shared_input_msqrob = prepare_data_for_msqrob(merged_input, all_proteins, no_swap)
-shared_input_limma  = prepare_data_for_limma(merged_input, all_proteins, no_swap)
-shared_input_limpa  = prepare_data_for_limpa(merged_input, all_proteins, no_swap)
-shared_input_deqms  = prepare_data_for_deqms(merged_input, all_proteins, no_swap)
-
 ## msqrob2 (hurdle) ------------------------------------------------------------
 # Port of the prolfquabenchmark workflow (vignettes/Benchmark_msqrob2.Rmd):
 # precursor LFQData -> normalization at precursor scale ->
 # LFQDataToSummarizedExperiment -> QFeatures -> aggregateFeatures with
-# medianPolish -> msqrobHurdle (rlm for intensity + glm for missingness).
-# Much faster than `msqrob()` + QRILC/MinDet imputation; the hurdle's count
-# component handles MNAR missingness natively.
-tic_msqrob2 = proc.time()[3]
-
-ms2_input = as.data.frame(shared_input_limma)
+# robustSummary (QFeatures default) -> msqrobHurdle (rlm + glm).
+# preprocess timing covers prep + normalization + aggregation;
+# model timing covers msqrobHurdle + hypothesisTestHurdle.
+t_pre = tic()
+ms2_input = prepare_data_for_limma(merged_input, all_proteins, no_swap)
+ms2_input = as.data.frame(ms2_input)
 ms2_input = ms2_input[is.finite(ms2_input$F.PeakArea) &
                         ms2_input$F.PeakArea > 0, , drop = FALSE]
 
@@ -77,6 +71,8 @@ pe = QFeatures::aggregateFeatures(
   pe, i = "peptide", fcol = "protein_Id", name = "protein"
 )
 
+pre_s = toc(t_pre)
+t_mod = tic()
 prlm = msqrob2::msqrobHurdle(pe, i = "protein", formula = ~group_,
                               overwrite = TRUE)
 L_ms2 = msqrob2::makeContrast(
@@ -85,6 +81,7 @@ L_ms2 = msqrob2::makeContrast(
 )
 prlm = msqrob2::hypothesisTestHurdle(prlm, i = "protein", L_ms2,
                                       overwrite = TRUE)
+mod_s = toc(t_mod)
 save(prlm, file = file.path(out_dir("msqrob2"), "msqrob_obj.rda"))
 
 # Extract the (single) hurdle contrast DataFrame.
@@ -115,13 +112,14 @@ msqrob2_model$adj.pvalue = p.adjust(msqrob2_model$pvalue, method = "BH")
 msqrob2_model = label_proteins(msqrob2_model)
 fwrite(msqrob2_model, file = file.path(out_dir("msqrob2"),
                                           "msqrob2_model.csv"))
-write_timing("msqrob2", out_dir("msqrob2"), tic_msqrob2)
+write_timing("msqrob2", out_dir("msqrob2"), pre_s, mod_s)
 message("msqrob2 finished")
 
 ## limma -----------------------------------------------------------------------
-tic_limma = proc.time()[3]
+t_pre = tic()
+limma_long = prepare_data_for_limma(merged_input, all_proteins, no_swap)
 maxlfq_input = preprocess(
-  shared_input_limma,
+  limma_long,
   primary_id = "PG.ProteinGroups",
   secondary_id = c("Feature"),
   sample_id = "R.FileName",
@@ -148,10 +146,13 @@ class = annotation$Condition[
 ] |> as.factor()
 design = model.matrix(~ 0 + class)
 
+pre_s = toc(t_pre)
+t_mod = tic()
 fit1 = lmFit(maxlfq_summarized, design = design)
 cont = makeContrasts(classCondition2 - classCondition1, levels = design)
 fit2 = contrasts.fit(fit1, contrasts = cont)
 fit3 = eBayes(fit2)
+mod_s = toc(t_mod)
 
 limma_model = data.frame(
   Protein = rownames(fit3$coefficients),
@@ -163,15 +164,16 @@ limma_model = data.frame(
 limma_model$adj.pvalue = p.adjust(limma_model$pvalue, method = "BH")
 limma_model = label_proteins(limma_model)
 fwrite(limma_model, file = file.path(out_dir("limma"), "limma_model.csv"))
-write_timing("limma", out_dir("limma"), tic_limma)
+write_timing("limma", out_dir("limma"), pre_s, mod_s)
 message("limma finished")
 
 ## limpa -----------------------------------------------------------------------
-tic_limpa = proc.time()[3]
-mapper = shared_input_limpa[c("PG.ProteinGroups", "Feature")]
+t_pre = tic()
+limpa_input_wide = prepare_data_for_limpa(merged_input, all_proteins, no_swap)
+mapper = limpa_input_wide[c("PG.ProteinGroups", "Feature")]
 row.names(mapper) = mapper$Feature
 
-limpa_dt = copy(shared_input_limpa)
+limpa_dt = copy(limpa_input_wide)
 row.names(limpa_dt) = limpa_dt$Feature
 limpa_dt = limpa_dt[, !colnames(limpa_dt) %in% c("PG.ProteinGroups", "Feature")]
 # shared_input_limpa is on the LINEAR scale (raw F.PeakArea pivoted wide).
@@ -189,6 +191,8 @@ row.names(targets) = targets$R.FileName
 
 limpa_elist = new("EList",
                    list(E = limpa_dt, genes = mapper, targets = targets))
+pre_s = toc(t_pre)
+t_mod = tic()
 dpcfit = tryCatch(dpc(limpa_elist),
                    error = function(e) {
                      warning("limpa dpc() failed under NORMALIZATION=",
@@ -206,6 +210,7 @@ if (!is.null(dpcfit)) {
   cont = makeContrasts(classCondition2 - classCondition1, levels = design)
   fit = contrasts.fit(fit, contrasts = cont)
   fit = eBayes(fit)
+  mod_s = toc(t_mod)
   limpa_model = data.frame(
     Protein = rownames(fit$coefficients),
     logFC   = as.numeric(fit$coefficients),
@@ -217,15 +222,17 @@ if (!is.null(dpcfit)) {
   limpa_model = label_proteins(limpa_model)
   fwrite(limpa_model, file = file.path(out_dir("limpa"),
                                           "limpa_model.csv"))
-  write_timing("limpa", out_dir("limpa"), tic_limpa)
+  write_timing("limpa", out_dir("limpa"), pre_s, mod_s)
   message("limpa finished")
 } else {
-  write_timing("limpa", out_dir("limpa"), tic_limpa)
+  mod_s = toc(t_mod)
+  write_timing("limpa", out_dir("limpa"), pre_s, mod_s)
   message("limpa skipped (dpc failed)")
 }
 
 ## DEqMS -----------------------------------------------------------------------
-tic_DEqMS = proc.time()[3]
+t_pre = tic()
+shared_input_deqms = prepare_data_for_deqms(merged_input, all_proteins, no_swap)
 summarize_deqms_no_ref_col = function(dat, group_col = 2) {
   dat.ratio = dat
   dat.ratio[, 3:ncol(dat)] = dat.ratio[, 3:ncol(dat)] -
@@ -266,12 +273,15 @@ class = annotation$Condition[
 ] |> as.factor()
 design = model.matrix(~ 0 + class)
 
+pre_s = toc(t_pre)
+t_mod = tic()
 fit1 = lmFit(deqms_summarized, design = design)
 cont = makeContrasts(classCondition2 - classCondition1, levels = design)
 fit2 = contrasts.fit(fit1, contrasts = cont)
 fit3 = eBayes(fit2)
 fit3$count = pep_count[rownames(fit3$coefficients), "count"]
 fit4 = spectraCounteBayes(fit3)
+mod_s = toc(t_mod)
 
 deqms_model = data.frame(
   Protein = rownames(fit4$coefficients),
@@ -283,19 +293,21 @@ deqms_model = data.frame(
 deqms_model$adj.pvalue = p.adjust(deqms_model$pvalue, method = "BH")
 deqms_model = label_proteins(deqms_model)
 fwrite(deqms_model, file = file.path(out_dir("DEqMS"), "deqms_model.csv"))
-write_timing("DEqMS", out_dir("DEqMS"), tic_DEqMS)
+write_timing("DEqMS", out_dir("DEqMS"), pre_s, mod_s)
 message("DEqMS finished")
 
 ## prolfqua --------------------------------------------------------------------
-tic_prolfqua = proc.time()[3]
-prolfqua_model = run_prolfqua_step(
+# run_prolfqua_step does its own prep + medpolish; it returns the two
+# phase timings as attributes on the model data.frame.
+prolfqua_res = run_prolfqua_step(
   merged_input, annotation, all_proteins, no_swap,
   normalization = normalization,
   vsn_func      = vsn_normalize_matrix,
   quantile_func = quantile_normalize_log2_matrix
 )
-prolfqua_model = label_proteins(prolfqua_model)
+prolfqua_model = label_proteins(prolfqua_res$model)
 fwrite(prolfqua_model,
         file = file.path(out_dir("prolfqua"), "prolfqua_model.csv"))
-write_timing("prolfqua", out_dir("prolfqua"), tic_prolfqua)
+write_timing("prolfqua", out_dir("prolfqua"),
+             prolfqua_res$preprocess_seconds, prolfqua_res$model_seconds)
 message("prolfqua finished")

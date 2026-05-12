@@ -98,15 +98,24 @@ label_proteins = function(df, protein_col = "Protein") {
   df
 }
 
-# Write a per-method timing record next to its model output.
-# Returns elapsed wall-clock seconds.
-write_timing = function(method, method_dir, tic) {
-  secs = as.numeric(proc.time()[3] - tic)
+# Per-method wall-clock timing, split into two phases:
+#   preprocess = data prep, summarisation, normalisation
+#   model      = parameter estimation + contrast / hypothesis test
+# Each method calls tic() at the start of each phase; write_timing writes
+# both into <method>_timing.csv.
+tic = function() proc.time()[3]
+toc = function(t0) as.numeric(proc.time()[3] - t0)
+
+write_timing = function(method, method_dir,
+                         preprocess_seconds, model_seconds) {
   fwrite(
-    data.frame(method = method, seconds = secs),
+    data.frame(method = method,
+               preprocess_seconds = preprocess_seconds,
+               model_seconds      = model_seconds),
     file = file.path(method_dir, paste0(method, "_timing.csv"))
   )
-  cat(sprintf("[time] %-18s %s%s = %.1f s\n",
-              method, variant, out_suffix, secs))
-  invisible(secs)
+  cat(sprintf("[time] %-18s %s%s pre=%6.1f s  fit=%6.1f s\n",
+              method, variant, out_suffix,
+              preprocess_seconds, model_seconds))
+  invisible(NULL)
 }

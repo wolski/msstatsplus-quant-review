@@ -8,6 +8,7 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
                               normalization = "none",
                               vsn_func = NULL, quantile_func = NULL) {
   stopifnot(normalization %in% c("none", "vsn", "quantile"))
+  t_pre = proc.time()[3]
   # Build the long-form precursor table without going through the dplyr pipe,
   # to avoid namespace collisions with prolfqua::rename / select.
   prolfqua_input = prepare_data_for_limma(merged_input, all_proteins, no_swap)
@@ -71,19 +72,27 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
   }
   lfq_protein = tr_norm$lfq
 
+  preprocess_seconds = as.numeric(proc.time()[3] - t_pre)
+  t_mod = proc.time()[3]
+
   contr_spec = c("Condition2_vs_Condition1" =
                    "group_Condition2 - group_Condition1")
   fa = prolfqua::ContrastsLMImputeFacade$new(lfq_protein, "~ group_",
                                               contr_spec)
   res = fa$get_contrasts()
+  model_seconds = as.numeric(proc.time()[3] - t_mod)
 
-  data.frame(
-    Protein    = res$protein_Id,
-    logFC      = res$diff,
-    SE         = res$std.error,
-    DF         = res$df,
-    pvalue     = res$p.value,
-    adj.pvalue = res$FDR,
-    stringsAsFactors = FALSE
+  list(
+    model = data.frame(
+      Protein    = res$protein_Id,
+      logFC      = res$diff,
+      SE         = res$std.error,
+      DF         = res$df,
+      pvalue     = res$p.value,
+      adj.pvalue = res$FDR,
+      stringsAsFactors = FALSE
+    ),
+    preprocess_seconds = preprocess_seconds,
+    model_seconds      = model_seconds
   )
 }

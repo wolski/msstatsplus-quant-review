@@ -30,7 +30,7 @@ rownames(comparison) = "Condition2-Condition1"
 colnames(comparison) = c("Condition1", "Condition2")
 
 ## MSstats+ --------------------------------------------------------------------
-tic_msstatsplus = proc.time()[3]
+t_pre = tic()
 msstats_input = MSstatsConvert::SpectronauttoMSstatsFormat(
   raw_input, annotation,
   intensity = "PeakArea",
@@ -67,18 +67,22 @@ summarized$ProteinLevelData$SUBJECT = as.numeric(as.factor(
   paste0(summarized$ProteinLevelData$originalRUN,
          summarized$ProteinLevelData$GROUP)))
 
+pre_s = toc(t_pre)
+t_mod = tic()
 msstatsplus_model = groupComparison(comparison, summarized,
                                      numberOfCores = 12)$ComparisonResult
+mod_s = toc(t_mod)
+
 msstatsplus_model = label_proteins(msstatsplus_model)
 fwrite(msstatsplus_model, file = file.path(out_dir("MSstats+"),
                                               "MSstats+_model.csv"))
-write_timing("MSstats+", out_dir("MSstats+"), tic_msstatsplus)
+write_timing("MSstats+", out_dir("MSstats+"), pre_s, mod_s)
 message("MSstats+ finished")
 
 ## MSstats ---------------------------------------------------------------------
 ## Re-run the Spectronaut->MSstats format conversion *without* the anomaly
 ## scoring (the only difference at the input level).
-tic_msstats = proc.time()[3]
+t_pre = tic()
 base_msstats_input = MSstatsConvert::SpectronauttoMSstatsFormat(
   raw_input, annotation,
   intensity = "PeakArea",
@@ -108,10 +112,14 @@ base_msstats_summarized$ProteinLevelData$SUBJECT = as.numeric(as.factor(
   paste0(base_msstats_summarized$ProteinLevelData$originalRUN,
          base_msstats_summarized$ProteinLevelData$GROUP)))
 
+pre_s = toc(t_pre)
+t_mod = tic()
 msstats_model = groupComparison(comparison, base_msstats_summarized,
                                  numberOfCores = 12)$ComparisonResult
+mod_s = toc(t_mod)
+
 msstats_model = label_proteins(msstats_model)
 fwrite(msstats_model, file = file.path(out_dir("MSstats"),
                                           "MSstats_model.csv"))
-write_timing("MSstats", out_dir("MSstats"), tic_msstats)
+write_timing("MSstats", out_dir("MSstats"), pre_s, mod_s)
 message("MSstats finished")

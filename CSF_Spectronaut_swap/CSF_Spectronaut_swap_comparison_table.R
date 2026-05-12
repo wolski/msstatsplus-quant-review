@@ -11,18 +11,36 @@ library(data.table)
 out_tag = Sys.getenv("OUT_TAG", unset = "")
 
 read_timing = function(timing_file) {
-  if (!file.exists(timing_file)) return(NA_real_)
+  if (is.null(timing_file) || !file.exists(timing_file)) {
+    return(list(preprocess_seconds = NA_real_, model_seconds = NA_real_))
+  }
   t = fread(timing_file)
-  if (!"seconds" %in% colnames(t) || nrow(t) == 0) return(NA_real_)
-  as.numeric(t$seconds[1])
+  if (nrow(t) == 0) {
+    return(list(preprocess_seconds = NA_real_, model_seconds = NA_real_))
+  }
+  # New schema: separate preprocess and model columns.
+  if (all(c("preprocess_seconds", "model_seconds") %in% colnames(t))) {
+    return(list(
+      preprocess_seconds = as.numeric(t$preprocess_seconds[1]),
+      model_seconds      = as.numeric(t$model_seconds[1])
+    ))
+  }
+  # Legacy schema: single 'seconds' column (treated as model time).
+  if ("seconds" %in% colnames(t)) {
+    return(list(preprocess_seconds = NA_real_,
+                model_seconds = as.numeric(t$seconds[1])))
+  }
+  list(preprocess_seconds = NA_real_, model_seconds = NA_real_)
 }
 
 spectronaut_metric = function(file, method, variant, swap_state, p_col, fc_col,
                               timing_file = NULL) {
+  timing = read_timing(timing_file)
   if (!file.exists(file)) {
     return(data.table(Method = method, Variant = variant, SwapState = swap_state,
                       TPR = NA_real_, PPV = NA_real_,
-                      seconds = read_timing(timing_file %||% "")))
+                      preprocess_seconds = timing$preprocess_seconds,
+                      model_seconds      = timing$model_seconds))
   }
   dt = fread(file)
   p     = dt[[p_col]]
@@ -41,7 +59,8 @@ spectronaut_metric = function(file, method, variant, swap_state, p_col, fc_col,
           sum(finite_fc & label == "Positive", na.rm = TRUE),
     PPV = if (n_discoveries > 0) 1 - false_disc / n_discoveries
           else NA_real_,
-    seconds = read_timing(timing_file %||% "")
+    preprocess_seconds = timing$preprocess_seconds,
+    model_seconds      = timing$model_seconds
   )
 }
 
@@ -99,7 +118,8 @@ setorder(comparison, SwapState, Variant, Method)
 rounded = copy(comparison)
 rounded[, c("TPR", "PPV") := lapply(.SD, round, 3),
         .SDcols = c("TPR", "PPV")]
-rounded[, seconds := round(seconds, 1)]
+rounded[, preprocess_seconds := round(preprocess_seconds, 1)]
+rounded[, model_seconds      := round(model_seconds, 1)]
 
 out_csv = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".csv")
 out_txt = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".txt")
