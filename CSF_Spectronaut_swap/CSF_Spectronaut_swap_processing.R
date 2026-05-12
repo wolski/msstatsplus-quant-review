@@ -6,14 +6,21 @@
 ## proteins to the run-relabel logic inside the non-MSstats prepare_*()
 ## helpers. We simply compare Condition1 (G1) vs Condition2 (G2).
 ##
-## Three environment variables select the run:
-##   REPORT_PATH : path to TSV (defaults to swapped report in this directory)
-##   VARIANT     : "V1_log2" (default; log2 normalization) or "v2_vsn"
-##                 (vsn::justvsn for non-MSstats methods; MSstats variants
-##                 are skipped because they normalize internally).
-##   OUT_SUFFIX  : "" (post-swap) or "_preswap" (against original TSV)
+## Environment variables that select the run:
+##   REPORT_PATH        : path to TSV (defaults to swapped report in this dir)
+##   VARIANT            : "V1_log2" (default; log2 normalization) or "v2_vsn"
+##                        (vsn::justvsn for non-MSstats methods; MSstats
+##                        variants are skipped because they normalize
+##                        internally).
+##   OUT_SUFFIX         : "" (post-swap) or "_preswap" (against original TSV)
+##   EXCLUDE_DILUTIONS  : comma-separated R.Condition values to drop from
+##                        analysis (e.g. "1to32,1to64"). Default: none.
+##   OUT_TAG            : suffix appended to the variant directory name so
+##                        results from filtered analyses don't overwrite
+##                        the canonical V1_log2/ / v2_vsn/ outputs
+##                        (e.g. "_no_high_dilutions").
 ##
-## Outputs land in <VARIANT>/<METHOD><OUT_SUFFIX>/. Run from this directory.
+## Outputs land in <VARIANT><OUT_TAG>/<METHOD><OUT_SUFFIX>/. Run from this dir.
 
 ## Packages --------------------------------------------------------------------
 suppressPackageStartupMessages({
@@ -42,6 +49,13 @@ report_path = Sys.getenv(
 )
 variant    = Sys.getenv("VARIANT",    unset = "V1_log2")
 out_suffix = Sys.getenv("OUT_SUFFIX", unset = "")
+out_tag    = Sys.getenv("OUT_TAG",    unset = "")
+exclude_dilutions = Sys.getenv("EXCLUDE_DILUTIONS", unset = "")
+exclude_dilutions = if (nchar(exclude_dilutions) > 0) {
+  trimws(strsplit(exclude_dilutions, ",", fixed = TRUE)[[1]])
+} else {
+  character(0)
+}
 
 stopifnot(variant %in% c("V1_log2", "v2_vsn"))
 apply_vsn = (variant == "v2_vsn")
@@ -49,9 +63,19 @@ apply_vsn = (variant == "v2_vsn")
 cat(sprintf("[config] report      = %s\n", report_path))
 cat(sprintf("[config] variant     = %s (vsn=%s)\n", variant, apply_vsn))
 cat(sprintf("[config] out_suffix  = '%s'\n", out_suffix))
+cat(sprintf("[config] out_tag     = '%s'\n", out_tag))
+cat(sprintf("[config] exclude     = %s\n",
+            if (length(exclude_dilutions) > 0)
+              paste(exclude_dilutions, collapse = ", ") else "(none)"))
 
 data_folder = "."
-out_dir = function(method) file.path(variant, paste0(method, out_suffix))
+variant_dir = paste0(variant, out_tag)
+dir.create(variant_dir, recursive = TRUE, showWarnings = FALSE)
+out_dir = function(method) {
+  d = file.path(variant_dir, paste0(method, out_suffix))
+  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  d
+}
 
 ## vsn helper ------------------------------------------------------------------
 vsn_normalize_matrix = function(m) {
@@ -70,6 +94,13 @@ annotation = fread(file.path(data_folder, "CSF_annotation.csv"))
 
 raw_input  = raw_input[tolower(raw_input$R.Condition) != "blank", ]
 annotation = annotation[tolower(annotation$Condition) != "blank", ]
+if (length(exclude_dilutions) > 0) {
+  drop_runs = annotation[R.Condition %in% exclude_dilutions, R.FileName]
+  raw_input  = raw_input[!R.Condition %in% exclude_dilutions, ]
+  annotation = annotation[!R.Condition %in% exclude_dilutions, ]
+  cat(sprintf("[config] dropped %d runs in dilutions {%s}\n",
+              length(drop_runs), paste(exclude_dilutions, collapse = ", ")))
+}
 annotation$Run = annotation$R.FileName
 run_order = unique(annotation[, .(Run, Order)])
 

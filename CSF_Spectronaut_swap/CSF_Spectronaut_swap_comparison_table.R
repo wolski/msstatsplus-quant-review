@@ -1,7 +1,14 @@
 ## Build the TPR/PPV comparison table for the precursor-swap benchmark.
-## Reads model outputs from V1_log2/<METHOD>{,_preswap}/ and
-## v2_vsn/<METHOD>{,_preswap}/ subdirs and emits a long-format table.
+## Reads model outputs from <variant><OUT_TAG>/<METHOD>{,_preswap}/ subdirs.
+## Env vars:
+##   OUT_TAG : suffix appended to each variant directory (default "" — the
+##             canonical V1_log2/ and v2_vsn/ outputs). Use the same OUT_TAG
+##             that was set when running the processing scripts.
+## Output filenames also carry OUT_TAG to avoid overwriting the canonical
+## table.
 library(data.table)
+
+out_tag = Sys.getenv("OUT_TAG", unset = "")
 
 spectronaut_metric = function(file, method, variant, swap_state, p_col, fc_col) {
   if (!file.exists(file)) {
@@ -59,7 +66,7 @@ for (variant in c("V1_log2", "v2_vsn")) {
       p_col    = s[[3]]
       fc_col   = s[[4]]
       dir = method_dirs[[method]]
-      file = file.path(variant, paste0(dir, suffix), file_nm)
+      file = file.path(paste0(variant, out_tag), paste0(dir, suffix), file_nm)
       # MSstats+ / MSstats only computed for V1_log2
       if (variant == "v2_vsn" && method %in% c("MSstats+", "MSstats")) next
       rows[[length(rows) + 1]] = spectronaut_metric(file, method, variant,
@@ -80,7 +87,9 @@ rounded = copy(comparison)
 rounded[, c("TPR", "PPV") := lapply(.SD, round, 3),
         .SDcols = c("TPR", "PPV")]
 
-fwrite(rounded, "CSF_Spectronaut_swap_comparison_table.csv")
-writeLines(capture.output(print(rounded)),
-            "CSF_Spectronaut_swap_comparison_table.txt")
+out_csv = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".csv")
+out_txt = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".txt")
+fwrite(rounded, out_csv)
+writeLines(capture.output(print(rounded)), out_txt)
+cat(sprintf("[table] wrote %s and %s\n", out_csv, out_txt))
 print(rounded)
