@@ -22,11 +22,19 @@ exclude_dilutions = if (nchar(exclude_dilutions) > 0) {
 } else {
   character(0)
 }
+# NORMALIZATION:
+#   "none" (default)        : log2 only, no inter-sample normalization
+#   "equalizeMedians"       : MSstats default (used in run_msstats.R)
+#   "quantile"              : MSstats quantile normalization
+#   "vsn"                   : vsn::justvsn (used in run_nonmsstats.R)
+# Each script interprets only the values that make sense for it.
+normalization = Sys.getenv("NORMALIZATION", unset = "none")
+stopifnot(normalization %in% c("none", "equalizeMedians", "quantile", "vsn"))
 stopifnot(variant %in% c("V1_log2", "v2_vsn"))
-apply_vsn = (variant == "v2_vsn")
+apply_vsn = (normalization == "vsn")
 
-cat(sprintf("[step] report=%s variant=%s suffix='%s' tag='%s' exclude=%s\n",
-            report_path, variant, out_suffix, out_tag,
+cat(sprintf("[step] report=%s variant=%s suffix='%s' tag='%s' norm=%s exclude=%s\n",
+            report_path, variant, out_suffix, out_tag, normalization,
             if (length(exclude_dilutions) > 0)
               paste(exclude_dilutions, collapse = ",") else "(none)"))
 

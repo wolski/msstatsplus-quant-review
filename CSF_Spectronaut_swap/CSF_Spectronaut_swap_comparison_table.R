@@ -67,8 +67,6 @@ for (variant in c("V1_log2", "v2_vsn")) {
       fc_col   = s[[4]]
       dir = method_dirs[[method]]
       file = file.path(paste0(variant, out_tag), paste0(dir, suffix), file_nm)
-      # MSstats+ / MSstats only computed for V1_log2
-      if (variant == "v2_vsn" && method %in% c("MSstats+", "MSstats")) next
       rows[[length(rows) + 1]] = spectronaut_metric(file, method, variant,
                                                      swap_state, p_col, fc_col)
     }
