@@ -57,7 +57,7 @@ exclude_dilutions = if (nchar(exclude_dilutions) > 0) {
   character(0)
 }
 
-stopifnot(variant %in% c("V1_log2", "v2_vsn"))
+stopifnot(variant %in% c("V1_log2", "v2_vsn", "v3_quantile"))
 apply_vsn = (variant == "v2_vsn")
 
 cat(sprintf("[config] report      = %s\n", report_path))
@@ -403,9 +403,11 @@ message("DEqMS finished")
 # protein; proteins with NA coefficients (all missing in one group) are
 # re-fit after LOD imputation with a borrowed covariance matrix, then
 # moderated. See prolfqua/R/ContrastsFacades.R.
-prolfqua_model = run_prolfqua_step(merged_input, annotation, all_proteins,
-                                    no_swap, apply_vsn,
-                                    vsn_func = vsn_normalize_matrix)
+prolfqua_model = run_prolfqua_step(
+  merged_input, annotation, all_proteins, no_swap,
+  normalization = if (apply_vsn) "vsn" else "none",
+  vsn_func      = vsn_normalize_matrix
+)
 prolfqua_model = label_proteins(prolfqua_model)
 fwrite(prolfqua_model, file = file.path(out_dir("prolfqua"),
                                           "prolfqua_model.csv"))

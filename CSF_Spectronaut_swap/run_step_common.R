@@ -30,7 +30,7 @@ exclude_dilutions = if (nchar(exclude_dilutions) > 0) {
 # Each script interprets only the values that make sense for it.
 normalization = Sys.getenv("NORMALIZATION", unset = "none")
 stopifnot(normalization %in% c("none", "equalizeMedians", "quantile", "vsn"))
-stopifnot(variant %in% c("V1_log2", "v2_vsn"))
+stopifnot(variant %in% c("V1_log2", "v2_vsn", "v3_quantile"))
 apply_vsn = (normalization == "vsn")
 
 cat(sprintf("[step] report=%s variant=%s suffix='%s' tag='%s' norm=%s exclude=%s\n",
@@ -45,6 +45,20 @@ vsn_normalize_matrix = function(m) {
   # vsn::justvsn rejects NaN; coerce all non-finite to NA before fitting.
   m[!is.finite(m)] = NA_real_
   out = vsn::justvsn(m)
+  dimnames(out) = dn
+  out
+}
+
+# Quantile normalization on a log2-scale matrix. Uses limma's
+# normalizeBetweenArrays which handles NAs (it computes per-column ranks
+# among available values and interpolates onto a common reference). Input
+# is assumed to be log2; output stays on log2.
+quantile_normalize_log2_matrix = function(m) {
+  m = as.matrix(m)
+  storage.mode(m) = "double"
+  dn = dimnames(m)
+  m[!is.finite(m)] = NA_real_
+  out = limma::normalizeBetweenArrays(m, method = "quantile")
   dimnames(out) = dn
   out
 }

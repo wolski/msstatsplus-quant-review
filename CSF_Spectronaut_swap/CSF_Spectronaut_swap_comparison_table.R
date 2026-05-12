@@ -57,7 +57,7 @@ method_dirs = c(
 )
 
 rows = list()
-for (variant in c("V1_log2", "v2_vsn")) {
+for (variant in c("V1_log2", "v2_vsn", "v3_quantile")) {
   for (swap_state in c("post", "pre")) {
     suffix = if (swap_state == "pre") "_preswap" else ""
     for (s in method_specs) {
@@ -77,7 +77,7 @@ comparison = rbindlist(rows)
 method_order = c("MSstats+", "MSstats", "limpa", "MaxLFQ + limma",
                  "msqrob2", "DEqMS", "prolfqua")
 comparison[, Method  := factor(Method,  levels = method_order)]
-comparison[, Variant := factor(Variant, levels = c("V1_log2", "v2_vsn"))]
+comparison[, Variant := factor(Variant, levels = c("V1_log2", "v2_vsn", "v3_quantile"))]
 comparison[, SwapState := factor(SwapState, levels = c("post", "pre"))]
 setorder(comparison, SwapState, Variant, Method)
 

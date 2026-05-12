@@ -5,7 +5,9 @@
 ## without re-running the rest of the pipeline.
 
 run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
-                              apply_vsn, vsn_func) {
+                              normalization = "none",
+                              vsn_func = NULL, quantile_func = NULL) {
+  stopifnot(normalization %in% c("none", "vsn", "quantile"))
   # Build the long-form precursor table without going through the dplyr pipe,
   # to avoid namespace collisions with prolfqua::rename / select.
   prolfqua_input = prepare_data_for_limma(merged_input, all_proteins, no_swap)
@@ -54,9 +56,16 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
   lfq_protein$is_transformed(FALSE)
 
   tr_norm = lfq_protein$get_Transformer()
-  if (apply_vsn) {
+  if (normalization == "vsn") {
+    stopifnot(!is.null(vsn_func))
     tr_norm$intensity_matrix(.func = vsn_func)
+  } else if (normalization == "quantile") {
+    # log2 first, then quantile on the log2-scale protein matrix.
+    stopifnot(!is.null(quantile_func))
+    tr_norm$log2()
+    tr_norm$intensity_matrix(.func = quantile_func)
   } else {
+    # "none" -> prolfquapp default: log2 + robscale at protein level.
     tr_norm$log2()
     tr_norm$robscale()
   }

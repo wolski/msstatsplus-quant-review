@@ -10,8 +10,11 @@
 #   ./run_split_benchmark.fish _no_high_dilutions "1to32,1to64"
 #
 # Variants:
-#   V1_log2 : NORMALIZATION=none for both scripts.
-#   v2_vsn  : NORMALIZATION=equalizeMedians for MSstats; vsn for non-MSstats.
+#   V1_log2     : NORMALIZATION=none for both scripts.
+#   v2_vsn      : MSstats=equalizeMedians; non-MSstats=vsn.
+#   v3_quantile : MSstats=quantile; non-MSstats=quantile (log2 + limma's
+#                 normalizeBetweenArrays); MSstats's built-in "quantile"
+#                 mode matches that on its summarized intensities.
 
 set TAG  ""
 set EXCL ""
@@ -54,14 +57,18 @@ function run_cell --argument variant suffix report norm_msstats norm_nonms
     end
 end
 
-echo "== V1_log2 post-swap"
-run_cell V1_log2 ""         $SWAP none none
-echo "== V1_log2 pre-swap"
-run_cell V1_log2 "_preswap" $ORIG none none
-echo "== v2_vsn  post-swap"
-run_cell v2_vsn  ""         $SWAP equalizeMedians vsn
-echo "== v2_vsn  pre-swap"
-run_cell v2_vsn  "_preswap" $ORIG equalizeMedians vsn
+echo "== V1_log2     post-swap"
+run_cell V1_log2     ""         $SWAP none            none
+echo "== V1_log2     pre-swap"
+run_cell V1_log2     "_preswap" $ORIG none            none
+echo "== v2_vsn      post-swap"
+run_cell v2_vsn      ""         $SWAP equalizeMedians vsn
+echo "== v2_vsn      pre-swap"
+run_cell v2_vsn      "_preswap" $ORIG equalizeMedians vsn
+echo "== v3_quantile post-swap"
+run_cell v3_quantile ""         $SWAP quantile        quantile
+echo "== v3_quantile pre-swap"
+run_cell v3_quantile "_preswap" $ORIG quantile        quantile
 
 echo "Building comparison table..."
 env OUT_TAG=$TAG Rscript CSF_Spectronaut_swap_comparison_table.R

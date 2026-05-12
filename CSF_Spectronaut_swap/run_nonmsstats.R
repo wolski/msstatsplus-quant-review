@@ -1,10 +1,10 @@
 ## Non-MSstats runner: msqrob2, limma, limpa, DEqMS, prolfqua.
 ##
 ## NORMALIZATION values that this script understands:
-##   "none"  -> log2 transform only (no inter-sample normalization)
-##   "vsn"   -> vsn::justvsn applied to each method's intensity matrix
-## "equalizeMedians" / "quantile" are rejected here (those are MSstats's
-## built-in options; apply analogous transforms by hand if you need them).
+##   "none"     -> log2 transform only (no inter-sample normalization)
+##   "vsn"      -> vsn::justvsn on the raw intensity scale
+##   "quantile" -> log2 first, then limma::normalizeBetweenArrays(method="quantile")
+## "equalizeMedians" is MSstats-only.
 suppressPackageStartupMessages({
   library(QFeatures)
   library(msqrob2)
@@ -18,10 +18,11 @@ suppressPackageStartupMessages({
 source("run_step_common.R")
 source("run_prolfqua_step.R")
 
-if (normalization %in% c("equalizeMedians", "quantile")) {
-  stop("run_nonmsstats.R does not implement NORMALIZATION=", normalization,
-       ". Use 'none' or 'vsn'.")
+if (normalization == "equalizeMedians") {
+  stop("run_nonmsstats.R does not implement NORMALIZATION=equalizeMedians ",
+       "(MSstats-only). Use 'none', 'vsn', or 'quantile'.")
 }
+apply_quantile = (normalization == "quantile")
 
 ## Pre-compute the shared inputs ----------------------------------------------
 shared_input_msqrob = prepare_data_for_msqrob(merged_input, all_proteins, no_swap)
@@ -48,7 +49,13 @@ rowData(pe[["peptideRaw"]])$nNonZero = rowSums(assay(pe[["peptideRaw"]]) > 0,
 pe = zeroIsNA(pe, "peptideRaw")
 pe = logTransform(pe, base = 2, i = "peptideRaw", name = "peptideLog")
 if (apply_vsn) {
+  # vsn::justvsn applied to raw (linear) precursors.
   assay(pe[["peptideLog"]]) = vsn_normalize_matrix(assay(pe[["peptideRaw"]]))
+} else if (apply_quantile) {
+  # quantile on the log2-scale precursor matrix.
+  assay(pe[["peptideLog"]]) = quantile_normalize_log2_matrix(
+    assay(pe[["peptideLog"]])
+  )
 }
 
 Protein_filter = rowData(pe[["peptideLog"]])$ProteinName %in%
@@ -91,7 +98,11 @@ maxlfq_input = preprocess(
 )
 maxlfq_summarized = fast_MaxLFQ(maxlfq_input)$estimate
 if (apply_vsn) {
+  # MaxLFQ output is log2; un-log2 to feed vsn linear intensities.
   maxlfq_summarized = vsn_normalize_matrix(2 ^ maxlfq_summarized)
+} else if (apply_quantile) {
+  # MaxLFQ output is already log2 -> quantile-normalize directly.
+  maxlfq_summarized = quantile_normalize_log2_matrix(maxlfq_summarized)
 }
 
 class = annotation$Condition[
@@ -123,8 +134,14 @@ row.names(mapper) = mapper$Feature
 limpa_dt = copy(shared_input_limpa)
 row.names(limpa_dt) = limpa_dt$Feature
 limpa_dt = limpa_dt[, !colnames(limpa_dt) %in% c("PG.ProteinGroups", "Feature")]
+# shared_input_limpa is on the LINEAR scale (raw F.PeakArea pivoted wide).
 if (apply_vsn) {
   limpa_dt = as.data.frame(vsn_normalize_matrix(limpa_dt))
+} else if (apply_quantile) {
+  # log2 the raw matrix, then quantile-normalize on log2.
+  limpa_dt = as.data.frame(
+    quantile_normalize_log2_matrix(log2(as.matrix(limpa_dt)))
+  )
 }
 
 targets = as.data.frame(annotation)[c("R.FileName", "Condition")]
@@ -182,13 +199,17 @@ summarize_deqms_no_ref_col = function(dat, group_col = 2) {
 }
 
 deqms_summarized = summarize_deqms_no_ref_col(shared_input_deqms, group_col = 1)
+# summarize_deqms_no_ref_col emits a log2-scale, median-summarized protein
+# matrix (prepare_data_for_deqms applies log2 upstream).
 if (apply_vsn) {
-  # summarize_deqms_no_ref_col emits a log2-scale, median-summarized
-  # protein matrix (prepare_data_for_deqms applies log2 upstream). vsn
-  # expects RAW (linear) intensities and produces glog-scale output, so
-  # undo the log2 first then feed vsn — analogous to the limma branch.
+  # vsn wants raw -> undo the log2 first then feed vsn.
   raw_protein = 2 ^ as.matrix(deqms_summarized)
   deqms_summarized = as.data.frame(vsn_normalize_matrix(raw_protein))
+} else if (apply_quantile) {
+  # Already log2 -> quantile-normalize directly.
+  deqms_summarized = as.data.frame(
+    quantile_normalize_log2_matrix(deqms_summarized)
+  )
 }
 pep_count = shared_input_deqms |>
   dplyr::group_by(PG.ProteinGroups) |>
@@ -222,9 +243,12 @@ fwrite(deqms_model, file = file.path(out_dir("DEqMS"), "deqms_model.csv"))
 message("DEqMS finished")
 
 ## prolfqua --------------------------------------------------------------------
-prolfqua_model = run_prolfqua_step(merged_input, annotation, all_proteins,
-                                    no_swap, apply_vsn,
-                                    vsn_func = vsn_normalize_matrix)
+prolfqua_model = run_prolfqua_step(
+  merged_input, annotation, all_proteins, no_swap,
+  normalization = normalization,
+  vsn_func      = vsn_normalize_matrix,
+  quantile_func = quantile_normalize_log2_matrix
+)
 prolfqua_model = label_proteins(prolfqua_model)
 fwrite(prolfqua_model,
         file = file.path(out_dir("prolfqua"), "prolfqua_model.csv"))
