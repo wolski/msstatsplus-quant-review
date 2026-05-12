@@ -53,7 +53,7 @@ method_specs = list(
   c("MSstats",             "MSstats_model.csv",             "pvalue", "log2FC"),
   c("limpa",               "limpa_model.csv",               "pvalue", "logFC"),
   c("MaxLFQ + limma",      "limma_model.csv",               "pvalue", "logFC"),
-  c("msqrob2",             "msqrob2_model.csv",             "pval",   "logFC"),
+  c("msqrob2",             "msqrob2_model.csv",             "pvalue", "logFC"),
   c("DEqMS",               "deqms_model.csv",               "pvalue", "logFC"),
   c("prolfqua",            "prolfqua_model.csv",            "pvalue", "logFC")
 )

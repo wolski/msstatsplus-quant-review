@@ -30,57 +30,87 @@ shared_input_limma  = prepare_data_for_limma(merged_input, all_proteins, no_swap
 shared_input_limpa  = prepare_data_for_limpa(merged_input, all_proteins, no_swap)
 shared_input_deqms  = prepare_data_for_deqms(merged_input, all_proteins, no_swap)
 
-## msqrob2 --------------------------------------------------------------------
+## msqrob2 (hurdle) ------------------------------------------------------------
+# Port of the prolfquabenchmark workflow (vignettes/Benchmark_msqrob2.Rmd):
+# precursor LFQData -> normalization at precursor scale ->
+# LFQDataToSummarizedExperiment -> QFeatures -> aggregateFeatures with
+# medianPolish -> msqrobHurdle (rlm for intensity + glm for missingness).
+# Much faster than `msqrob()` + QRILC/MinDet imputation; the hurdle's count
+# component handles MNAR missingness natively.
 tic_msqrob2 = proc.time()[3]
-df_LFQ = dcast(shared_input_msqrob, ProteinName + Fragment ~ Run,
-                value.var = "F.PeakArea", fun.aggregate = max, fill = NA)
 
-colnames(df_LFQ)[3:ncol(df_LFQ)] = paste("F.PeakArea",
-                                          colnames(df_LFQ)[3:ncol(df_LFQ)],
-                                          sep = "_")
-ecols = grep("F.PeakArea", colnames(df_LFQ))
+ms2_input = as.data.frame(shared_input_limma)
+ms2_input = ms2_input[is.finite(ms2_input$F.PeakArea) &
+                        ms2_input$F.PeakArea > 0, , drop = FALSE]
 
-pe = readQFeatures(df_LFQ, fnames = 2, quantCols = ecols, name = "peptideRaw")
-colData(pe)$condition = annotation$Condition[
-  match(sub("^F\\.PeakArea_", "", colnames(df_LFQ)[ecols]),
-        annotation$R.FileName)
-] |> as.factor()
-rowData(pe[["peptideRaw"]])$nNonZero = rowSums(assay(pe[["peptideRaw"]]) > 0,
-                                                  na.rm = TRUE)
-pe = zeroIsNA(pe, "peptideRaw")
-pe = logTransform(pe, base = 2, i = "peptideRaw", name = "peptideLog")
+config_ms2 = prolfqua::AnalysisConfiguration$new()
+config_ms2$file_name = "R.FileName"
+config_ms2$factors["group_"] = "Condition"
+config_ms2$hierarchy[["protein_Id"]]   = "PG.ProteinGroups"
+config_ms2$hierarchy[["precursor_Id"]] = "EG.PrecursorId"
+config_ms2$hierarchy[["fragment_Id"]]  = c("Feature", "F.FrgLossType")
+config_ms2$hierarchy_depth = 1
+config_ms2$set_response("F.PeakArea")
+adata_ms2 = prolfqua::setup_analysis(ms2_input, config_ms2)
+lfq_pep = prolfqua::LFQData$new(adata_ms2, config_ms2)
+
+tr_pep = lfq_pep$get_Transformer()
 if (apply_vsn) {
-  # vsn::justvsn applied to raw (linear) precursors.
-  assay(pe[["peptideLog"]]) = vsn_normalize_matrix(assay(pe[["peptideRaw"]]))
+  tr_pep$intensity_matrix(.func = vsn_normalize_matrix)
 } else if (apply_quantile) {
-  # quantile on the log2-scale precursor matrix.
-  assay(pe[["peptideLog"]]) = quantile_normalize_log2_matrix(
-    assay(pe[["peptideLog"]])
-  )
+  tr_pep$log2()
+  tr_pep$intensity_matrix(.func = quantile_normalize_log2_matrix)
+} else {
+  tr_pep$log2()
+  tr_pep$robscale()
+}
+lfq_pep_norm = tr_pep$lfq
+
+# precursor LFQData -> SummarizedExperiment -> QFeatures
+se = prolfqua::LFQDataToSummarizedExperiment(lfqdata = lfq_pep_norm)
+pe = QFeatures::QFeatures(list(peptide = se), colData = colData(se))
+
+my_medianPolish = function(x, verbose = FALSE, ...) {
+  medpol = stats::medpolish(x, na.rm = TRUE, trace.iter = verbose, maxiter = 10)
+  medpol$overall + medpol$col
 }
 
-Protein_filter = rowData(pe[["peptideLog"]])$ProteinName %in%
-  smallestUniqueGroups(rowData(pe[["peptideLog"]])$ProteinName)
-pe = pe[Protein_filter, ]
-pe = filterFeatures(pe, ~ nNonZero >= 2)
-# MinDet imputation (imputeLCMD): deterministic left-censored fill —
-# replaces each NA with the column quantile (default 0.01) of observed
-# values. Same MNAR/LOD assumption as QRILC but trivial memory and ~1000x
-# faster (no rtmvnorm rejection sampling). Reproducible across runs.
-pe = QFeatures::impute(pe, i = "peptideLog", name = "peptideImp",
-                        method = "MinDet")
-pe = aggregateFeatures(pe, i = "peptideImp", fcol = "ProteinName",
-                        name = "protein")
+pe = QFeatures::aggregateFeatures(
+  pe, i = "peptide", fcol = "protein_Id",
+  name = "protein", fun = my_medianPolish
+)
 
-pe = msqrob(object = pe, i = "protein", formula = ~condition)
-L = makeContrast("conditionCondition2=0",
-                  parameterNames = c("conditionCondition2",
-                                      "conditionCondition1"))
-pe = hypothesisTest(object = pe, i = "protein", contrast = L)
-save(pe, file = file.path(out_dir("msqrob2"), "msqrob_obj.rda"))
+prlm = msqrob2::msqrobHurdle(pe, i = "protein", formula = ~group_,
+                              overwrite = TRUE)
+L_ms2 = msqrob2::makeContrast(
+  "group_Condition2 - group_Condition1=0",
+  parameterNames = c("group_Condition1", "group_Condition2")
+)
+prlm = msqrob2::hypothesisTestHurdle(prlm, i = "protein", L_ms2,
+                                      overwrite = TRUE)
+save(prlm, file = file.path(out_dir("msqrob2"), "msqrob_obj.rda"))
 
-msqrob2_model = rowData(pe[["protein"]])$`conditionCondition2`
-msqrob2_model$Protein = rownames(msqrob2_model)
+# Extract the (single) hurdle contrast DataFrame and merge intensity-based
+# and count-based estimates: prefer logFCt (rlm), fall back to logOR (glm)
+# for proteins where the intensity model could not fit.
+xx = SummarizedExperiment::rowData(prlm[["protein"]])
+hurdle_cols = grep("^hurdle_", names(xx), value = TRUE)
+stopifnot(length(hurdle_cols) == 1)
+hdf = as.data.frame(xx[[hurdle_cols[1]]])
+hdf$Protein = rownames(xx)
+
+use_intensity = !is.na(hdf$logFCt)
+msqrob2_model = data.frame(
+  Protein = c(hdf$Protein[use_intensity], hdf$Protein[!use_intensity]),
+  logFC   = c(hdf$logFCt[use_intensity], hdf$logOR[!use_intensity]),
+  SE      = c(hdf$set[use_intensity],    hdf$seOR[!use_intensity]),
+  DF      = c(hdf$dft[use_intensity],    hdf$dfOR[!use_intensity]),
+  pvalue  = c(hdf$pvalt[use_intensity],  hdf$pvalOR[!use_intensity]),
+  source  = c(rep("intensity", sum(use_intensity)),
+              rep("count",     sum(!use_intensity))),
+  stringsAsFactors = FALSE
+)
+msqrob2_model$adj.pvalue = p.adjust(msqrob2_model$pvalue, method = "BH")
 msqrob2_model = label_proteins(msqrob2_model)
 fwrite(msqrob2_model, file = file.path(out_dir("msqrob2"),
                                           "msqrob2_model.csv"))
