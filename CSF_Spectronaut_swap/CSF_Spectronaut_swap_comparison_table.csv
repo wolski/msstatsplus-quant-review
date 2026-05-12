@@ -1,0 +1,25 @@
+Method,Variant,SwapState,TPR,PPV
+MSstats+,V1_log2,post,0.867,0.88
+MSstats,V1_log2,post,0.755,0.894
+limpa,V1_log2,post,0.67,0.973
+MaxLFQ + limma,V1_log2,post,0.849,0.923
+msqrob2,V1_log2,post,0.618,0.936
+DEqMS,V1_log2,post,0.783,0.907
+prolfqua,V1_log2,post,0.906,0.853
+limpa,v2_vsn,post,,
+MaxLFQ + limma,v2_vsn,post,0.84,0.824
+msqrob2,v2_vsn,post,0.764,0.831
+DEqMS,v2_vsn,post,0.858,0.722
+prolfqua,v2_vsn,post,0.821,0.916
+MSstats+,V1_log2,pre,0.019,0.133
+MSstats,V1_log2,pre,0.009,0.095
+limpa,V1_log2,pre,0.005,0.2
+MaxLFQ + limma,V1_log2,pre,0.005,0.062
+msqrob2,V1_log2,pre,0,0
+DEqMS,V1_log2,pre,0,0
+prolfqua,V1_log2,pre,0.014,0.086
+limpa,v2_vsn,pre,,
+MaxLFQ + limma,v2_vsn,pre,0.033,0.121
+msqrob2,v2_vsn,pre,0.009,0.08
+DEqMS,v2_vsn,pre,0.042,0.113
+prolfqua,v2_vsn,pre,0.009,0.111

@@ -16,3 +16,21 @@
 !CSF_Spectronaut/*.fish
 !K562_Spectronaut/*.R
 !K562_Spectronaut/*.fish
+
+# Precursor-swap benchmark.
+!CSF_Spectronaut_swap/
+!CSF_Spectronaut_swap/*.R
+!CSF_Spectronaut_swap/*.fish
+!CSF_Spectronaut_swap/*.qmd
+!CSF_Spectronaut_swap/CSF_annotation.csv
+!CSF_Spectronaut_swap/CSF_protein_swap_list.csv
+!CSF_Spectronaut_swap/*_swap_ground_truth.tsv
+!CSF_Spectronaut_swap/*_swap_true_positives.tsv
+!CSF_Spectronaut_swap/*_swap_group_annotation.csv
+!CSF_Spectronaut_swap/CSF_Spectronaut_swap_comparison_table.csv
+!CSF_Spectronaut_swap/CSF_Spectronaut_swap_comparison_table.txt
+!CSF_Spectronaut_swap/CSF_precursor_swap_visualization.html
+
+# Python swap tool.
+!swap_spectronaut_report.py
+!pyproject.toml

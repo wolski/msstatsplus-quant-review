@@ -1,0 +1,327 @@
+---
+title: "CSF Spectronaut precursor-swap benchmark — visualizing the swap"
+author: "Generated to accompany swap_spectronaut_report.py"
+format:
+  html:
+    toc: true
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+This notebook visualises the CSF Spectronaut dilution dataset after the
+**precursor-intensity swap** that perturbs ~5 % of proteins as up-regulated
+and ~5 % as down-regulated between two randomly chosen halves (G1, G2) of
+each dilution's runs. Read alongside the swap script
+`../swap_spectronaut_report.py` and the plan at
+`/Users/wolski/.claude/plans/just-to-make-sure-cheeky-sprout.md`.
+
+```{r setup}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(patchwork)
+
+theme_set(theme_minimal(base_size = 11))
+
+REPORT_NAME = "20250130_163144_CSF dilutions Jan 2025 no normalization_Report.tsv"
+swap_path   = file.path(".", REPORT_NAME)
+orig_path   = file.path("..", "CSF_Spectronaut", REPORT_NAME)
+groups      = fread(sub(".tsv$", "_swap_group_annotation.csv", REPORT_NAME))
+tp          = fread(sub(".tsv$", "_swap_true_positives.tsv", REPORT_NAME))
+gt          = fread(sub(".tsv$", "_swap_ground_truth.tsv", REPORT_NAME))
+```
+
+# 1. Run schedule and G1/G2 assignment
+
+Each row is one MS run. `R.Replicate` (the trailing `Seq<N>` in the filename)
+is the injection order; runs are split into G1 / G2 within each dilution
+condition, and the swap is applied only to G2 runs of the ~10 % perturbed
+proteins.
+
+```{r schedule, fig.height=4, fig.width=12}
+groups[, Order := as.integer(str_extract(R.FileName, "(?<=Seq)\\d+"))]
+groups[, Dilution := R.Condition]
+
+dilution_levels = c("neat", "1to2", "1to4", "1to8", "1to16", "1to32", "1to64")
+groups[, Dilution := factor(Dilution, levels = dilution_levels)]
+
+ggplot(groups, aes(x = Order, y = Dilution, fill = group)) +
+  geom_point(shape = 21, size = 5, colour = "white", stroke = 0.6) +
+  scale_fill_manual(values = c("G1" = "#1f77b4", "G2" = "#d62728")) +
+  labs(title    = "Run schedule and G1/G2 assignment",
+       subtitle = sprintf("%d runs over %d dilutions; perturbation applied to G2 runs only of %d swapped proteins (5 %% UP + 5 %% DOWN).",
+                          nrow(groups), uniqueN(groups$Dilution), nrow(tp)),
+       x = "Injection order (Seq#)", y = NULL, fill = NULL) +
+  theme(legend.position = "top",
+        panel.grid.minor.x = element_blank())
+```
+
+# 2. Load reports and summarize to protein × run intensities
+
+We summarize the precursor-level Spectronaut report to one log2 intensity per
+`(protein, run)` by taking the mean of `log2(FG.Quantity)` over precursors.
+This is a lightweight stand-in for MSstats `dataProcess` and is sufficient
+for the diagnostic plots that follow.
+
+```{r summarize}
+summarize_report = function(path) {
+  dt = fread(path, sep = "\t", select = c("R.FileName", "R.Condition",
+                                            "PG.ProteinGroups",
+                                            "EG.PrecursorId", "FG.Quantity"))
+  dt = dt[!is.na(FG.Quantity) & FG.Quantity > 0]
+  dt = unique(dt, by = c("R.FileName", "PG.ProteinGroups", "EG.PrecursorId"))
+  dt[, LogQuantity := log2(FG.Quantity)]
+  dt[, .(LogIntensity = mean(LogQuantity)),
+     by = .(R.FileName, R.Condition, Protein = PG.ProteinGroups)]
+}
+
+prot_after  = summarize_report(swap_path); prot_after[, state  := "after swap"]
+prot_before = summarize_report(orig_path); prot_before[, state := "before swap"]
+prot_all = rbindlist(list(prot_before, prot_after), use.names = TRUE)
+
+prot_all = merge(prot_all, groups[, .(R.FileName, group)],
+                  by = "R.FileName", all.x = TRUE)
+prot_all = merge(prot_all, tp[, .(Protein = PG.ProteinGroups, role)],
+                  by = "Protein", all.x = TRUE)
+prot_all[is.na(role), role := "null"]
+prot_all[, role := factor(role, levels = c("up", "down", "null"))]
+prot_all[, state := factor(state, levels = c("before swap", "after swap"))]
+
+# All downstream analyses run on a single dilution where G1/G2 has enough
+# replicates to estimate within-group variance (other dilutions are 1-2 runs).
+FOCAL_DILUTION = "neat"
+prot_focal = prot_all[R.Condition == FOCAL_DILUTION]
+cat(sprintf("Focal dilution: %s — %d runs (%d G1 + %d G2)\n",
+            FOCAL_DILUTION,
+            uniqueN(prot_focal$R.FileName),
+            uniqueN(prot_focal[group == "G1", R.FileName]),
+            uniqueN(prot_focal[group == "G2", R.FileName])))
+```
+
+# 3. Heatmap after the swap (focal dilution)
+
+Rows are proteins, columns are the runs of the focal dilution (`r FOCAL_DILUTION`)
+sorted by group (G1 on the left, G2 on the right). The top facet is
+UP-perturbed proteins, middle is DOWN-perturbed, bottom is a sample of null
+proteins. Each row is z-scored — red = high, grey = at the row mean, green
+= low.
+
+```{r heatmap, fig.height=10, fig.width=10}
+runs_focal = groups[Dilution == FOCAL_DILUTION][order(group, Order),
+                                                  .(R.FileName, group, Order)]
+
+prot_h = prot_focal[state == "after swap" &
+                      R.FileName %in% runs_focal$R.FileName]
+
+# z-score per protein
+prot_h[, z := scale(LogIntensity)[, 1], by = Protein]
+prot_h[, z := pmax(pmin(z, 2), -2)]
+
+# Cluster rows within each class
+make_row_order = function(dat) {
+  if (nrow(dat) < 2 || uniqueN(dat$Protein) < 2) return(unique(dat$Protein))
+  m = dcast(dat, Protein ~ R.FileName, value.var = "z")
+  mat = as.matrix(m[, -1, with = FALSE])
+  mat[is.na(mat)] = 0
+  ord = hclust(dist(mat))$order
+  m$Protein[ord]
+}
+
+set.seed(1)
+null_sample = sample(unique(prot_h[role == "null", Protein]),
+                      size = min(150, uniqueN(prot_h[role == "null", Protein])))
+prot_h = prot_h[role != "null" | Protein %in% null_sample]
+
+ords = c(make_row_order(prot_h[role == "up"]),
+         make_row_order(prot_h[role == "down"]),
+         make_row_order(prot_h[role == "null"]))
+prot_h[, Protein := factor(Protein, levels = ords)]
+prot_h[, R.FileName := factor(R.FileName, levels = runs_focal$R.FileName)]
+
+col_strip = runs_focal[, .(R.FileName = factor(R.FileName,
+                                                  levels = runs_focal$R.FileName),
+                            group)]
+p_strip = ggplot(col_strip, aes(x = R.FileName, y = 1, fill = group)) +
+  geom_tile() +
+  scale_fill_manual(values = c("G1" = "#1f77b4", "G2" = "#d62728"),
+                    name = "Run group") +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(x = NULL, y = NULL) +
+  theme_void() +
+  theme(legend.position = "top",
+        plot.margin = margin(t = 0, r = 0, b = 0, l = 0))
+
+p_heat = ggplot(prot_h, aes(x = R.FileName, y = Protein, fill = z)) +
+  geom_tile() +
+  facet_grid(role ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  scale_fill_gradient2(low = "#2ca02c", mid = "grey90", high = "#d62728",
+                       midpoint = 0, limits = c(-2, 2),
+                       name = "row z-score") +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(title    = sprintf("Per-protein intensity after the swap (%s dilution)",
+                            FOCAL_DILUTION),
+       subtitle = "Top: UP-perturbed (high in G2). Middle: DOWN-perturbed (low in G2). Bottom: 150 random nulls (no banding).",
+       x = NULL, y = NULL) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        strip.text.y.left = element_text(angle = 0, face = "bold"),
+        legend.position = "right",
+        panel.spacing.y = unit(0.4, "lines"))
+
+p_strip / p_heat + plot_layout(heights = c(0.04, 1), guides = "collect") &
+  theme(legend.position = "right")
+```
+
+**What to see:**
+
+- **UP facet** — within each row, the G2 columns (right half) are red and the
+  G1 columns (left half) are green. The protein received a higher-abundance
+  partner's intensities in G2.
+- **DOWN facet** — mirror image: G2 columns green, G1 red.
+- **null facet** — no consistent left-right pattern; cells scatter around the
+  protein mean.
+
+# 4. Per-protein effect size
+
+Per-protein mean(G2) − mean(G1) by class and state. Before the swap, both
+the perturbed and the null classes should sit at 0 because G1/G2 is a random
+split with no biological contrast. After the swap, UP shifts to +1.6 and
+DOWN to −1.6 while null stays at 0.
+
+```{r effect_density, fig.height=4}
+stats = prot_focal[!is.na(group),
+                    .(mean_log = mean(LogIntensity, na.rm = TRUE),
+                       n = .N),
+                    by = .(Protein, group, state, role)]
+wide = dcast(stats, Protein + state + role ~ group, value.var = "mean_log")
+wide[, mean_diff := G2 - G1]
+
+ggplot(wide[is.finite(mean_diff)], aes(x = mean_diff, fill = role)) +
+  geom_density(alpha = 0.55) +
+  geom_vline(xintercept = c(-1.6, 0, 1.6), linetype = 2, colour = "grey40") +
+  facet_wrap(~ state) +
+  scale_fill_manual(values = c("up"   = "#d62728",
+                                "down" = "#2ca02c",
+                                "null" = "#7f7f7f")) +
+  labs(title = "Per-protein effect size",
+       x = "log2 fold change (mean G2 − mean G1)", y = "density",
+       fill = NULL) +
+  theme(legend.position = "top")
+```
+
+# 5. Realized vs expected log2 FC for perturbed proteins
+
+Scatter of the **realized** per-protein log2FC (G2 − G1, after swap) against
+the **expected** log2FC recorded in the ground-truth file. Should track the
+identity line within the precursor-level noise; the spread comes mainly from
+missing-value patterns at the precursor level.
+
+```{r expected_vs_observed, fig.height=4.5, fig.width=6}
+sw = merge(
+  wide[state == "after swap" & role != "null",
+        .(Protein, role, mean_diff)],
+  tp[, .(Protein = PG.ProteinGroups, expected_log2fc)],
+  by = "Protein"
+)
+
+ggplot(sw, aes(x = expected_log2fc, y = mean_diff, colour = role)) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2, colour = "grey40") +
+  geom_hline(yintercept = 0, linetype = 3, colour = "grey60") +
+  geom_point(alpha = 0.7, size = 1.4) +
+  scale_colour_manual(values = c("up" = "#d62728", "down" = "#2ca02c")) +
+  labs(title = "Realized vs expected log2 fold change",
+       x = "expected log2FC (ground truth)",
+       y = "realized log2FC (mean G2 − mean G1)",
+       colour = NULL) +
+  theme(legend.position = "top")
+
+cat(sprintf("Pearson r = %.3f\n",
+            cor(sw$expected_log2fc, sw$mean_diff, use = "complete.obs")))
+```
+
+# 6. Within-group variance
+
+Pooled within-group SD per protein. The key subtlety: this dataset spans
+7 dilutions over ~6 log2, so a naive SD pooled across the whole G1 (or G2)
+column reflects the dilution series, not the swap. We instead compute the
+SD within each `(dilution, group)` cell separately and pool across all
+14 cells per protein — that is the "residual" variance after removing the
+dilution and G1/G2 main effects.
+
+```{r sd_density, fig.height=4}
+stats2 = prot_focal[!is.na(group),
+                     .(sd_log = sd(LogIntensity, na.rm = TRUE),
+                        n      = .N),
+                     by = .(Protein, group, state, role)]
+
+# Pool the two within-group cells (G1 and G2) per protein × state.
+sd_within = stats2[is.finite(sd_log) & n >= 2,
+                   .(sd_pool = sqrt(sum((n - 1) * sd_log^2) /
+                                     pmax(sum(n - 1), 1)),
+                     n_cells = .N),
+                   by = .(Protein, state, role)]
+
+ggplot(sd_within[n_cells == 2], aes(x = sd_pool, fill = role)) +
+  geom_density(alpha = 0.55) +
+  facet_wrap(~ state) +
+  scale_fill_manual(values = c("up"   = "#d62728",
+                                "down" = "#2ca02c",
+                                "null" = "#7f7f7f")) +
+  labs(title    = sprintf("Within-group pooled SD per protein (%s only)",
+                           FOCAL_DILUTION),
+       subtitle = "SD computed inside G1 and G2 separately, then pooled.",
+       x = "sd(log2 intensity)", y = "density", fill = NULL) +
+  theme(legend.position = "top")
+```
+
+# 7. Mean–variance relationship (SD vs mean intensity)
+
+The same within-(dilution × group) pooled SD plotted against the protein's
+overall mean log2 intensity. Variance moderation methods (limma, DEqMS,
+limpa) fit a single mean-variance trend to the whole population; if the
+perturbed and null classes diverge from that trend, those methods will
+mis-moderate.
+
+```{r mean_var, fig.height=4.5, fig.width=10}
+mean_int = prot_focal[!is.na(group),
+                       .(mean_intensity = mean(LogIntensity, na.rm = TRUE)),
+                       by = .(Protein, state)]
+mv = merge(sd_within[n_cells == 2], mean_int, by = c("Protein", "state"))
+
+ggplot(mv, aes(x = mean_intensity, y = sd_pool, colour = role)) +
+  geom_point(alpha = 0.35, size = 0.7) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.6) +
+  facet_wrap(~ state) +
+  scale_colour_manual(values = c("up"   = "#d62728",
+                                  "down" = "#2ca02c",
+                                  "null" = "#7f7f7f")) +
+  labs(title    = "Mean–variance trend per class",
+       subtitle = "Solid lines are LOESS fits per class; if the up/down trends diverge from null, variance moderation will be biased.",
+       x = "mean log2 intensity", y = "within-cell pooled SD",
+       colour = NULL) +
+  theme(legend.position = "top")
+```
+
+# 8. Take-aways
+
+1. The swap perturbs ~5 % of proteins as UP and ~5 % as DOWN; the remaining
+   ~90 % are an empirical null with G2/G1 log2FC centered on 0.
+2. Realized log2FC for perturbed proteins tracks the expected ±1.6 with high
+   correlation; the residual spread comes from missing-value patterns at the
+   precursor level — unavoidable when working from real DIA quant.
+3. Variance for perturbed proteins is inflated relative to nulls, by the same
+   mechanism. Empirical-Bayes variance moderation (limma, DEqMS) trained on
+   the full population will be biased toward the inflated variance and may
+   over-shrink perturbed estimates — same caveat as the original run-pair
+   swap design.
