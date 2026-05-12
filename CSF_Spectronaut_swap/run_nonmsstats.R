@@ -70,14 +70,11 @@ lfq_pep_norm = tr_pep$lfq
 se = prolfqua::LFQDataToSummarizedExperiment(lfqdata = lfq_pep_norm)
 pe = QFeatures::QFeatures(list(peptide = se), colData = colData(se))
 
-my_medianPolish = function(x, verbose = FALSE, ...) {
-  medpol = stats::medpolish(x, na.rm = TRUE, trace.iter = verbose, maxiter = 10)
-  medpol$overall + medpol$col
-}
-
+# Use the QFeatures default (MsCoreUtils::robustSummary) — vanilla msqrob2
+# vignette behaviour. Robust-regression peptide -> protein rollup, no
+# explicit medianPolish override.
 pe = QFeatures::aggregateFeatures(
-  pe, i = "peptide", fcol = "protein_Id",
-  name = "protein", fun = my_medianPolish
+  pe, i = "peptide", fcol = "protein_Id", name = "protein"
 )
 
 prlm = msqrob2::msqrobHurdle(pe, i = "protein", formula = ~group_,
