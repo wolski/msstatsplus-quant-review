@@ -95,9 +95,9 @@ annotation = fread(file.path(data_folder, "CSF_annotation.csv"))
 raw_input  = raw_input[tolower(raw_input$R.Condition) != "blank", ]
 annotation = annotation[tolower(annotation$Condition) != "blank", ]
 if (length(exclude_dilutions) > 0) {
-  drop_runs = annotation[R.Condition %in% exclude_dilutions, R.FileName]
+  drop_runs = raw_input[R.Condition %in% exclude_dilutions, unique(R.FileName)]
   raw_input  = raw_input[!R.Condition %in% exclude_dilutions, ]
-  annotation = annotation[!R.Condition %in% exclude_dilutions, ]
+  annotation = annotation[!R.FileName %in% drop_runs, ]
   cat(sprintf("[config] dropped %d runs in dilutions {%s}\n",
               length(drop_runs), paste(exclude_dilutions, collapse = ", ")))
 }
