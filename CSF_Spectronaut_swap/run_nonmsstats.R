@@ -183,7 +183,12 @@ summarize_deqms_no_ref_col = function(dat, group_col = 2) {
 
 deqms_summarized = summarize_deqms_no_ref_col(shared_input_deqms, group_col = 1)
 if (apply_vsn) {
-  deqms_summarized = as.data.frame(vsn_normalize_matrix(deqms_summarized))
+  # summarize_deqms_no_ref_col emits a log2-scale, median-summarized
+  # protein matrix (prepare_data_for_deqms applies log2 upstream). vsn
+  # expects RAW (linear) intensities and produces glog-scale output, so
+  # undo the log2 first then feed vsn — analogous to the limma branch.
+  raw_protein = 2 ^ as.matrix(deqms_summarized)
+  deqms_summarized = as.data.frame(vsn_normalize_matrix(raw_protein))
 }
 pep_count = shared_input_deqms |>
   dplyr::group_by(PG.ProteinGroups) |>

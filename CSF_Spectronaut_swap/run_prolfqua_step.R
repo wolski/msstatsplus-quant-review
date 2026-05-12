@@ -39,18 +39,28 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
   adata = prolfqua::setup_analysis(prolfqua_input, config)
   lfqdata = prolfqua::LFQData$new(adata, config)
 
-  tr = lfqdata$get_Transformer()
-  if (apply_vsn) {
-    tr$intensity_matrix(.func = vsn_func)
-  } else {
-    tr$log2()
-    tr$robscale()
-  }
-  lfqdata_trans = tr$lfq
-
-  agg = lfqdata_trans$get_Aggregator("medpolish")
+  # prolfquapp canonical aggregation:
+  #   precursors -> natural log -> medpolish -> exp -> protein-level (linear)
+  # Then normalize at PROTEIN level (vsn or log2+robscale), matching
+  # prolfquapp::transform_lfqdata. Aggregating in log space then undoing the
+  # log gives a stable additive decomposition; normalization at the protein
+  # scale lets vsn (or robscale) see one value per protein per run.
+  tr_log = lfqdata$get_Transformer()$intensity_array(log)
+  agg = tr_log$lfq$get_Aggregator("medpolish")
   agg$aggregate()
-  lfq_protein = agg$lfq_agg
+  lfq_protein_log = agg$lfq_agg
+  tr_inv = lfq_protein_log$get_Transformer()$intensity_array(exp, force = TRUE)
+  lfq_protein = tr_inv$lfq
+  lfq_protein$is_transformed(FALSE)
+
+  tr_norm = lfq_protein$get_Transformer()
+  if (apply_vsn) {
+    tr_norm$intensity_matrix(.func = vsn_func)
+  } else {
+    tr_norm$log2()
+    tr_norm$robscale()
+  }
+  lfq_protein = tr_norm$lfq
 
   contr_spec = c("Condition2_vs_Condition1" =
                    "group_Condition2 - group_Condition1")

@@ -25,7 +25,9 @@ summarize_deqms_no_ref_col = function(dat, group_col = 2) {
 
 deqms_summarized = summarize_deqms_no_ref_col(deqms_input, group_col = 1)
 if (apply_vsn) {
-  deqms_summarized = as.data.frame(vsn_normalize_matrix(deqms_summarized))
+  # prepare_data_for_deqms applies log2 upstream; vsn expects raw scale.
+  raw_protein = 2 ^ as.matrix(deqms_summarized)
+  deqms_summarized = as.data.frame(vsn_normalize_matrix(raw_protein))
 }
 pep_count = deqms_input |>
   dplyr::group_by(PG.ProteinGroups) |>
