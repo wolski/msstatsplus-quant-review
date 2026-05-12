@@ -10,10 +10,19 @@ library(data.table)
 
 out_tag = Sys.getenv("OUT_TAG", unset = "")
 
-spectronaut_metric = function(file, method, variant, swap_state, p_col, fc_col) {
+read_timing = function(timing_file) {
+  if (!file.exists(timing_file)) return(NA_real_)
+  t = fread(timing_file)
+  if (!"seconds" %in% colnames(t) || nrow(t) == 0) return(NA_real_)
+  as.numeric(t$seconds[1])
+}
+
+spectronaut_metric = function(file, method, variant, swap_state, p_col, fc_col,
+                              timing_file = NULL) {
   if (!file.exists(file)) {
     return(data.table(Method = method, Variant = variant, SwapState = swap_state,
-                      TPR = NA_real_, PPV = NA_real_))
+                      TPR = NA_real_, PPV = NA_real_,
+                      seconds = read_timing(timing_file %||% "")))
   }
   dt = fread(file)
   p     = dt[[p_col]]
@@ -31,9 +40,12 @@ spectronaut_metric = function(file, method, variant, swap_state, p_col, fc_col) 
     TPR = sum(significant & label == "Positive", na.rm = TRUE) /
           sum(finite_fc & label == "Positive", na.rm = TRUE),
     PPV = if (n_discoveries > 0) 1 - false_disc / n_discoveries
-          else NA_real_
+          else NA_real_,
+    seconds = read_timing(timing_file %||% "")
   )
 }
+
+`%||%` = function(a, b) if (is.null(a) || (is.character(a) && nchar(a) == 0)) b else a
 
 method_specs = list(
   # method label,           file name within method dir,    p_col,    fc_col
@@ -66,9 +78,12 @@ for (variant in c("V1_log2", "v2_vsn", "v3_quantile")) {
       p_col    = s[[3]]
       fc_col   = s[[4]]
       dir = method_dirs[[method]]
-      file = file.path(paste0(variant, out_tag), paste0(dir, suffix), file_nm)
+      method_dir = file.path(paste0(variant, out_tag), paste0(dir, suffix))
+      file = file.path(method_dir, file_nm)
+      timing_file = file.path(method_dir, paste0(dir, "_timing.csv"))
       rows[[length(rows) + 1]] = spectronaut_metric(file, method, variant,
-                                                     swap_state, p_col, fc_col)
+                                                     swap_state, p_col, fc_col,
+                                                     timing_file = timing_file)
     }
   }
 }
@@ -84,6 +99,7 @@ setorder(comparison, SwapState, Variant, Method)
 rounded = copy(comparison)
 rounded[, c("TPR", "PPV") := lapply(.SD, round, 3),
         .SDcols = c("TPR", "PPV")]
+rounded[, seconds := round(seconds, 1)]
 
 out_csv = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".csv")
 out_txt = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".txt")

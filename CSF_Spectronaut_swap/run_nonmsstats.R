@@ -31,6 +31,7 @@ shared_input_limpa  = prepare_data_for_limpa(merged_input, all_proteins, no_swap
 shared_input_deqms  = prepare_data_for_deqms(merged_input, all_proteins, no_swap)
 
 ## msqrob2 --------------------------------------------------------------------
+tic_msqrob2 = proc.time()[3]
 df_LFQ = dcast(shared_input_msqrob, ProteinName + Fragment ~ Run,
                 value.var = "F.PeakArea", fun.aggregate = max, fill = NA)
 
@@ -62,8 +63,12 @@ Protein_filter = rowData(pe[["peptideLog"]])$ProteinName %in%
   smallestUniqueGroups(rowData(pe[["peptideLog"]])$ProteinName)
 pe = pe[Protein_filter, ]
 pe = filterFeatures(pe, ~ nNonZero >= 2)
+# MinDet imputation (imputeLCMD): deterministic left-censored fill —
+# replaces each NA with the column quantile (default 0.01) of observed
+# values. Same MNAR/LOD assumption as QRILC but trivial memory and ~1000x
+# faster (no rtmvnorm rejection sampling). Reproducible across runs.
 pe = QFeatures::impute(pe, i = "peptideLog", name = "peptideImp",
-                        method = "QRILC")
+                        method = "MinDet")
 pe = aggregateFeatures(pe, i = "peptideImp", fcol = "ProteinName",
                         name = "protein")
 
@@ -79,9 +84,11 @@ msqrob2_model$Protein = rownames(msqrob2_model)
 msqrob2_model = label_proteins(msqrob2_model)
 fwrite(msqrob2_model, file = file.path(out_dir("msqrob2"),
                                           "msqrob2_model.csv"))
+write_timing("msqrob2", out_dir("msqrob2"), tic_msqrob2)
 message("msqrob2 finished")
 
 ## limma -----------------------------------------------------------------------
+tic_limma = proc.time()[3]
 maxlfq_input = preprocess(
   shared_input_limma,
   primary_id = "PG.ProteinGroups",
@@ -125,9 +132,11 @@ limma_model = data.frame(
 limma_model$adj.pvalue = p.adjust(limma_model$pvalue, method = "BH")
 limma_model = label_proteins(limma_model)
 fwrite(limma_model, file = file.path(out_dir("limma"), "limma_model.csv"))
+write_timing("limma", out_dir("limma"), tic_limma)
 message("limma finished")
 
 ## limpa -----------------------------------------------------------------------
+tic_limpa = proc.time()[3]
 mapper = shared_input_limpa[c("PG.ProteinGroups", "Feature")]
 row.names(mapper) = mapper$Feature
 
@@ -177,12 +186,15 @@ if (!is.null(dpcfit)) {
   limpa_model = label_proteins(limpa_model)
   fwrite(limpa_model, file = file.path(out_dir("limpa"),
                                           "limpa_model.csv"))
+  write_timing("limpa", out_dir("limpa"), tic_limpa)
   message("limpa finished")
 } else {
+  write_timing("limpa", out_dir("limpa"), tic_limpa)
   message("limpa skipped (dpc failed)")
 }
 
 ## DEqMS -----------------------------------------------------------------------
+tic_DEqMS = proc.time()[3]
 summarize_deqms_no_ref_col = function(dat, group_col = 2) {
   dat.ratio = dat
   dat.ratio[, 3:ncol(dat)] = dat.ratio[, 3:ncol(dat)] -
@@ -240,9 +252,11 @@ deqms_model = data.frame(
 deqms_model$adj.pvalue = p.adjust(deqms_model$pvalue, method = "BH")
 deqms_model = label_proteins(deqms_model)
 fwrite(deqms_model, file = file.path(out_dir("DEqMS"), "deqms_model.csv"))
+write_timing("DEqMS", out_dir("DEqMS"), tic_DEqMS)
 message("DEqMS finished")
 
 ## prolfqua --------------------------------------------------------------------
+tic_prolfqua = proc.time()[3]
 prolfqua_model = run_prolfqua_step(
   merged_input, annotation, all_proteins, no_swap,
   normalization = normalization,
@@ -252,4 +266,5 @@ prolfqua_model = run_prolfqua_step(
 prolfqua_model = label_proteins(prolfqua_model)
 fwrite(prolfqua_model,
         file = file.path(out_dir("prolfqua"), "prolfqua_model.csv"))
+write_timing("prolfqua", out_dir("prolfqua"), tic_prolfqua)
 message("prolfqua finished")

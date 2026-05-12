@@ -97,3 +97,16 @@ label_proteins = function(df, protein_col = "Protein") {
                      "Positive", "Negative")
   df
 }
+
+# Write a per-method timing record next to its model output.
+# Returns elapsed wall-clock seconds.
+write_timing = function(method, method_dir, tic) {
+  secs = as.numeric(proc.time()[3] - tic)
+  fwrite(
+    data.frame(method = method, seconds = secs),
+    file = file.path(method_dir, paste0(method, "_timing.csv"))
+  )
+  cat(sprintf("[time] %-18s %s%s = %.1f s\n",
+              method, variant, out_suffix, secs))
+  invisible(secs)
+}

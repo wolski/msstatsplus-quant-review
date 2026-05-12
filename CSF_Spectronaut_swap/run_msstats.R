@@ -30,6 +30,7 @@ rownames(comparison) = "Condition2-Condition1"
 colnames(comparison) = c("Condition1", "Condition2")
 
 ## MSstats+ --------------------------------------------------------------------
+tic_msstatsplus = proc.time()[3]
 msstats_input = MSstatsConvert::SpectronauttoMSstatsFormat(
   raw_input, annotation,
   intensity = "PeakArea",
@@ -71,11 +72,13 @@ msstatsplus_model = groupComparison(comparison, summarized,
 msstatsplus_model = label_proteins(msstatsplus_model)
 fwrite(msstatsplus_model, file = file.path(out_dir("MSstats+"),
                                               "MSstats+_model.csv"))
+write_timing("MSstats+", out_dir("MSstats+"), tic_msstatsplus)
 message("MSstats+ finished")
 
 ## MSstats ---------------------------------------------------------------------
 ## Re-run the Spectronaut->MSstats format conversion *without* the anomaly
 ## scoring (the only difference at the input level).
+tic_msstats = proc.time()[3]
 base_msstats_input = MSstatsConvert::SpectronauttoMSstatsFormat(
   raw_input, annotation,
   intensity = "PeakArea",
@@ -110,4 +113,5 @@ msstats_model = groupComparison(comparison, base_msstats_summarized,
 msstats_model = label_proteins(msstats_model)
 fwrite(msstats_model, file = file.path(out_dir("MSstats"),
                                           "MSstats_model.csv"))
+write_timing("MSstats", out_dir("MSstats"), tic_msstats)
 message("MSstats finished")
