@@ -73,7 +73,10 @@ pe = QFeatures::aggregateFeatures(
 
 pre_s = toc(t_pre)
 t_mod = tic()
-prlm = msqrob2::msqrobHurdle(pe, i = "protein", formula = ~group_,
+# Drop intercept so both factor levels get their own coefficient — this
+# matches the prolfquabenchmark contrast spec (parameters named after
+# the factor levels directly, not "(Intercept)" + offset).
+prlm = msqrob2::msqrobHurdle(pe, i = "protein", formula = ~ 0 + group_,
                               overwrite = TRUE)
 L_ms2 = msqrob2::makeContrast(
   "group_Condition2 - group_Condition1=0",
