@@ -87,22 +87,26 @@ prlm = msqrob2::hypothesisTestHurdle(prlm, i = "protein", L_ms2,
                                       overwrite = TRUE)
 save(prlm, file = file.path(out_dir("msqrob2"), "msqrob_obj.rda"))
 
-# Extract the (single) hurdle contrast DataFrame and merge intensity-based
-# and count-based estimates: prefer logFCt (rlm), fall back to logOR (glm)
-# for proteins where the intensity model could not fit.
+# Extract the (single) hurdle contrast DataFrame.
+# Columns from hypothesisTestHurdle (msqrob2):
+#   intensity (rlm) : logFC, logFCse, logFCdf, logFCt, logFCpval
+#   count    (glm)  : logOR, logORse, logORdf, logORt, logORpval
+#   combined        : fisher, fisherDf, fisherPval, fisherAdjPval
+# Prefer the intensity model where it could fit; fall back to the count
+# model for proteins observed in only one group.
 xx = SummarizedExperiment::rowData(prlm[["protein"]])
 hurdle_cols = grep("^hurdle_", names(xx), value = TRUE)
 stopifnot(length(hurdle_cols) == 1)
 hdf = as.data.frame(xx[[hurdle_cols[1]]])
 hdf$Protein = rownames(xx)
 
-use_intensity = !is.na(hdf$logFCt)
+use_intensity = !is.na(hdf$logFC)
 msqrob2_model = data.frame(
   Protein = c(hdf$Protein[use_intensity], hdf$Protein[!use_intensity]),
-  logFC   = c(hdf$logFCt[use_intensity], hdf$logOR[!use_intensity]),
-  SE      = c(hdf$set[use_intensity],    hdf$seOR[!use_intensity]),
-  DF      = c(hdf$dft[use_intensity],    hdf$dfOR[!use_intensity]),
-  pvalue  = c(hdf$pvalt[use_intensity],  hdf$pvalOR[!use_intensity]),
+  logFC   = c(hdf$logFC[use_intensity],   hdf$logOR[!use_intensity]),
+  SE      = c(hdf$logFCse[use_intensity], hdf$logORse[!use_intensity]),
+  DF      = c(hdf$logFCdf[use_intensity], hdf$logORdf[!use_intensity]),
+  pvalue  = c(hdf$logFCpval[use_intensity], hdf$logORpval[!use_intensity]),
   source  = c(rep("intensity", sum(use_intensity)),
               rep("count",     sum(!use_intensity))),
   stringsAsFactors = FALSE
