@@ -29,6 +29,10 @@
 !CSF_Spectronaut_swap/*_swap_group_annotation.csv
 !CSF_Spectronaut_swap/CSF_Spectronaut_swap_comparison_table.csv
 !CSF_Spectronaut_swap/CSF_Spectronaut_swap_comparison_table.txt
+# Per-run comparison tables under <run>/ (e.g. all_dilutions/, no_high_dilutions/).
+!CSF_Spectronaut_swap/*/
+!CSF_Spectronaut_swap/*/comparison_table.csv
+!CSF_Spectronaut_swap/*/comparison_table.txt
 !CSF_Spectronaut_swap/CSF_precursor_swap_visualization.html
 
 # Python swap tool.
