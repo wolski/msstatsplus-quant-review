@@ -10,8 +10,10 @@
 
 run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
                               normalization = "none",
-                              vsn_func = NULL, quantile_func = NULL) {
-  stopifnot(normalization %in% c("none", "vsn", "quantile"))
+                              vsn_func = NULL,
+                              quantile_func = NULL,
+                              median_func = NULL) {
+  stopifnot(normalization %in% c("none", "vsn", "quantile", "median"))
   t_pre = proc.time()[3]
   # Build the long-form precursor table without going through the dplyr pipe,
   # to avoid namespace collisions with prolfqua::rename / select.
@@ -72,6 +74,10 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
     stopifnot(!is.null(quantile_func))
     tr_norm$log2()
     tr_norm$intensity_matrix(.func = quantile_func, force = TRUE)
+  } else if (normalization == "median") {
+    stopifnot(!is.null(median_func))
+    tr_norm$log2()
+    tr_norm$intensity_matrix(.func = median_func, force = TRUE)
   } else {
     # "none" -> prolfquapp default: log2 + robscale at protein level.
     tr_norm$log2()

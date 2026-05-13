@@ -32,9 +32,11 @@ exclude_dilutions = if (nchar(exclude_dilutions) > 0) {
 #   "vsn"                   : vsn::justvsn (used in run_nonmsstats.R)
 # Each script interprets only the values that make sense for it.
 normalization = Sys.getenv("NORMALIZATION", unset = "none")
-stopifnot(normalization %in% c("none", "equalizeMedians", "quantile", "vsn"))
-stopifnot(variant %in% c("V1_log2", "v2_vsn", "v3_quantile"))
-apply_vsn = (normalization == "vsn")
+stopifnot(normalization %in% c("none", "equalizeMedians", "quantile", "vsn", "median"))
+stopifnot(variant %in% c("V1_log2", "v2_median", "v2_vsn", "v3_quantile"))
+apply_vsn      = (normalization == "vsn")
+apply_quantile = (normalization == "quantile")
+apply_median   = (normalization == "median")
 
 cat(sprintf("[step] report=%s variant=%s suffix='%s' tag='%s' norm=%s exclude=%s\n",
             report_path, variant, out_suffix, out_tag, normalization,
@@ -62,6 +64,20 @@ quantile_normalize_log2_matrix = function(m) {
   dn = dimnames(m)
   m[!is.finite(m)] = NA_real_
   out = limma::normalizeBetweenArrays(m, method = "quantile")
+  dimnames(out) = dn
+  out
+}
+
+# Per-column median centering on a log2-scale matrix: subtracts each
+# column's median (NA-safe) so all columns share the same median.
+# Equivalent in spirit to MSstats's "equalizeMedians".
+median_normalize_log2_matrix = function(m) {
+  m = as.matrix(m)
+  storage.mode(m) = "double"
+  dn = dimnames(m)
+  m[!is.finite(m)] = NA_real_
+  cm = matrixStats::colMedians(m, na.rm = TRUE)
+  out = sweep(m, 2, cm, FUN = "-")
   dimnames(out) = dn
   out
 }

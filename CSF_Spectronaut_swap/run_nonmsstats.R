@@ -2,8 +2,10 @@
 ##
 ## NORMALIZATION values that this script understands:
 ##   "none"     -> log2 transform only (no inter-sample normalization)
+##   "median"   -> log2 + per-column median centering (semantic match for
+##                 MSstats's "equalizeMedians")
 ##   "vsn"      -> vsn::justvsn on the raw intensity scale
-##   "quantile" -> log2 first, then limma::normalizeBetweenArrays(method="quantile")
+##   "quantile" -> log2 + limma::normalizeBetweenArrays(method="quantile")
 ## "equalizeMedians" is MSstats-only.
 suppressPackageStartupMessages({
   library(QFeatures)
@@ -20,9 +22,8 @@ source("run_prolfqua_step.R")
 
 if (normalization == "equalizeMedians") {
   stop("run_nonmsstats.R does not implement NORMALIZATION=equalizeMedians ",
-       "(MSstats-only). Use 'none', 'vsn', or 'quantile'.")
+       "(MSstats-only). Use 'none', 'median', 'vsn', or 'quantile'.")
 }
-apply_quantile = (normalization == "quantile")
 
 ## msqrob2 (hurdle) ------------------------------------------------------------
 # Pipeline:
@@ -81,6 +82,8 @@ if (apply_vsn) {
   prot_mat = vsn_normalize_matrix(2 ^ prot_mat)
 } else if (apply_quantile) {
   prot_mat = quantile_normalize_log2_matrix(prot_mat)
+} else if (apply_median) {
+  prot_mat = median_normalize_log2_matrix(prot_mat)
 }
 # else: keep the log2 protein matrix as-is (V1_log2 baseline).
 SummarizedExperiment::assay(pe[["protein"]]) = prot_mat
@@ -156,6 +159,8 @@ if (apply_vsn) {
 } else if (apply_quantile) {
   # MaxLFQ output is already log2 -> quantile-normalize directly.
   maxlfq_summarized = quantile_normalize_log2_matrix(maxlfq_summarized)
+} else if (apply_median) {
+  maxlfq_summarized = median_normalize_log2_matrix(maxlfq_summarized)
 }
 
 class = annotation$Condition[
@@ -200,6 +205,10 @@ if (apply_vsn) {
   # log2 the raw matrix, then quantile-normalize on log2.
   limpa_dt = as.data.frame(
     quantile_normalize_log2_matrix(log2(as.matrix(limpa_dt)))
+  )
+} else if (apply_median) {
+  limpa_dt = as.data.frame(
+    median_normalize_log2_matrix(log2(as.matrix(limpa_dt)))
   )
 }
 
@@ -277,6 +286,10 @@ if (apply_vsn) {
   deqms_summarized = as.data.frame(
     quantile_normalize_log2_matrix(deqms_summarized)
   )
+} else if (apply_median) {
+  deqms_summarized = as.data.frame(
+    median_normalize_log2_matrix(deqms_summarized)
+  )
 }
 pep_count = shared_input_deqms |>
   dplyr::group_by(PG.ProteinGroups) |>
@@ -321,7 +334,8 @@ prolfqua_res = run_prolfqua_step(
   merged_input, annotation, all_proteins, no_swap,
   normalization = normalization,
   vsn_func      = vsn_normalize_matrix,
-  quantile_func = quantile_normalize_log2_matrix
+  quantile_func = quantile_normalize_log2_matrix,
+  median_func   = median_normalize_log2_matrix
 )
 prolfqua_model = label_proteins(prolfqua_res$model)
 fwrite(prolfqua_model,

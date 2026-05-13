@@ -46,13 +46,13 @@ pe = QFeatures::aggregateFeatures(
   pe, i = "peptide_norm", fcol = "protein_Id", name = "protein"
 )
 
-apply_vsn      = (normalization == "vsn")
-apply_quantile = (normalization == "quantile")
 prot_mat = SummarizedExperiment::assay(pe[["protein"]])
 if (apply_vsn) {
   prot_mat = vsn_normalize_matrix(2 ^ prot_mat)
 } else if (apply_quantile) {
   prot_mat = quantile_normalize_log2_matrix(prot_mat)
+} else if (apply_median) {
+  prot_mat = median_normalize_log2_matrix(prot_mat)
 }
 SummarizedExperiment::assay(pe[["protein"]]) = prot_mat
 

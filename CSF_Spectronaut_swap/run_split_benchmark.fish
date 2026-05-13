@@ -14,7 +14,9 @@
 #
 # Variants:
 #   V1_log2     : NORMALIZATION=none for both scripts.
-#   v2_vsn      : MSstats=equalizeMedians; non-MSstats=vsn.
+#   v2_median   : MSstats=equalizeMedians; non-MSstats=log2 + per-column
+#                 median centering (same idea as MSstats's
+#                 equalizeMedians applied to each method's working matrix).
 #   v3_quantile : MSstats=quantile; non-MSstats=quantile (log2 + limma's
 #                 normalizeBetweenArrays); MSstats's built-in "quantile"
 #                 mode matches that on its summarized intensities.
@@ -69,10 +71,10 @@ echo "== V1_log2     post-swap"
 run_cell V1_log2     ""         $SWAP none            none
 echo "== V1_log2     pre-swap"
 run_cell V1_log2     "_preswap" $ORIG none            none
-echo "== v2_vsn      post-swap"
-run_cell v2_vsn      ""         $SWAP equalizeMedians vsn
-echo "== v2_vsn      pre-swap"
-run_cell v2_vsn      "_preswap" $ORIG equalizeMedians vsn
+echo "== v2_median   post-swap"
+run_cell v2_median   ""         $SWAP equalizeMedians median
+echo "== v2_median   pre-swap"
+run_cell v2_median   "_preswap" $ORIG equalizeMedians median
 echo "== v3_quantile post-swap"
 run_cell v3_quantile ""         $SWAP quantile        quantile
 echo "== v3_quantile pre-swap"
