@@ -22,6 +22,7 @@
 !CSF_Spectronaut_swap/*.R
 !CSF_Spectronaut_swap/*.fish
 !CSF_Spectronaut_swap/*.qmd
+!CSF_Spectronaut_swap/README.md
 !CSF_Spectronaut_swap/CSF_annotation.csv
 !CSF_Spectronaut_swap/CSF_protein_swap_list.csv
 !CSF_Spectronaut_swap/*_swap_ground_truth.tsv
