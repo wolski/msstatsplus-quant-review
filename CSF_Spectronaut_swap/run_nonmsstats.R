@@ -300,8 +300,9 @@ write_timing("DEqMS", out_dir("DEqMS"), pre_s, mod_s)
 message("DEqMS finished")
 
 ## prolfqua --------------------------------------------------------------------
-# run_prolfqua_step does its own prep + medpolish; it returns the two
-# phase timings as attributes on the model data.frame.
+# run_prolfqua_step.R is the single source of truth for the prolfqua DE block
+# (config -> log+medpolish+exp -> protein-level normalization ->
+# ContrastsLMImputeFacade). Returns model + per-phase timings.
 prolfqua_res = run_prolfqua_step(
   merged_input, annotation, all_proteins, no_swap,
   normalization = normalization,

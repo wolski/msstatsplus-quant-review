@@ -1,8 +1,12 @@
-## prolfqua step — standalone, defensive against dplyr namespace conflicts.
+## prolfqua step — single source of truth for the prolfqua DE block.
 ##
-## Sourced by the main processing script; can also be run directly with
-## VARIANT and OUT_SUFFIX env vars to produce a missing prolfqua_model.csv
-## without re-running the rest of the pipeline.
+## Sourced by run_nonmsstats.R. Returns a list with
+##   $model              (data.frame: Protein, logFC, SE, DF, pvalue, adj.pvalue)
+##   $preprocess_seconds (wall-clock: prep + normalization + aggregation)
+##   $model_seconds      (wall-clock: ContrastsLMImputeFacade + get_contrasts)
+##
+## Uses base-R indexing to avoid the prolfqua/dplyr `rename` and `select`
+## namespace collisions that bit earlier iterations of this code.
 
 run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
                               normalization = "none",
