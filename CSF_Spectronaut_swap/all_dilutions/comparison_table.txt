@@ -1,0 +1,92 @@
+            Method     Variant SwapState   TPR   PPV preprocess_seconds
+            <fctr>      <fctr>    <fctr> <num> <num>              <num>
+ 1:       MSstats+     V1_log2      post 0.867 0.880              291.3
+ 2:        MSstats     V1_log2      post 0.755 0.894               95.0
+ 3:          limpa     V1_log2      post    NA    NA                 NA
+ 4: MaxLFQ + limma     V1_log2      post    NA    NA                 NA
+ 5:        msqrob2     V1_log2      post    NA    NA                 NA
+ 6:          DEqMS     V1_log2      post    NA    NA                 NA
+ 7:       prolfqua     V1_log2      post    NA    NA                 NA
+ 8:       MSstats+      v2_vsn      post    NA    NA                 NA
+ 9:        MSstats      v2_vsn      post    NA    NA                 NA
+10:          limpa      v2_vsn      post    NA    NA                 NA
+11: MaxLFQ + limma      v2_vsn      post    NA    NA                 NA
+12:        msqrob2      v2_vsn      post    NA    NA                 NA
+13:          DEqMS      v2_vsn      post    NA    NA                 NA
+14:       prolfqua      v2_vsn      post    NA    NA                 NA
+15:       MSstats+ v3_quantile      post    NA    NA                 NA
+16:        MSstats v3_quantile      post    NA    NA                 NA
+17:          limpa v3_quantile      post    NA    NA                 NA
+18: MaxLFQ + limma v3_quantile      post    NA    NA                 NA
+19:        msqrob2 v3_quantile      post    NA    NA                 NA
+20:          DEqMS v3_quantile      post    NA    NA                 NA
+21:       prolfqua v3_quantile      post    NA    NA                 NA
+22:       MSstats+     V1_log2       pre    NA    NA                 NA
+23:        MSstats     V1_log2       pre    NA    NA                 NA
+24:          limpa     V1_log2       pre    NA    NA                 NA
+25: MaxLFQ + limma     V1_log2       pre    NA    NA                 NA
+26:        msqrob2     V1_log2       pre    NA    NA                 NA
+27:          DEqMS     V1_log2       pre    NA    NA                 NA
+28:       prolfqua     V1_log2       pre    NA    NA                 NA
+29:       MSstats+      v2_vsn       pre    NA    NA                 NA
+30:        MSstats      v2_vsn       pre    NA    NA                 NA
+31:          limpa      v2_vsn       pre    NA    NA                 NA
+32: MaxLFQ + limma      v2_vsn       pre    NA    NA                 NA
+33:        msqrob2      v2_vsn       pre    NA    NA                 NA
+34:          DEqMS      v2_vsn       pre    NA    NA                 NA
+35:       prolfqua      v2_vsn       pre    NA    NA                 NA
+36:       MSstats+ v3_quantile       pre    NA    NA                 NA
+37:        MSstats v3_quantile       pre    NA    NA                 NA
+38:          limpa v3_quantile       pre    NA    NA                 NA
+39: MaxLFQ + limma v3_quantile       pre    NA    NA                 NA
+40:        msqrob2 v3_quantile       pre    NA    NA                 NA
+41:          DEqMS v3_quantile       pre    NA    NA                 NA
+42:       prolfqua v3_quantile       pre    NA    NA                 NA
+            Method     Variant SwapState   TPR   PPV preprocess_seconds
+            <fctr>      <fctr>    <fctr> <num> <num>              <num>
+    model_seconds
+            <num>
+ 1:          10.2
+ 2:        1227.0
+ 3:            NA
+ 4:            NA
+ 5:            NA
+ 6:            NA
+ 7:            NA
+ 8:            NA
+ 9:            NA
+10:            NA
+11:            NA
+12:            NA
+13:            NA
+14:            NA
+15:            NA
+16:            NA
+17:            NA
+18:            NA
+19:            NA
+20:            NA
+21:            NA
+22:            NA
+23:            NA
+24:            NA
+25:            NA
+26:            NA
+27:            NA
+28:            NA
+29:            NA
+30:            NA
+31:            NA
+32:            NA
+33:            NA
+34:            NA
+35:            NA
+36:            NA
+37:            NA
+38:            NA
+39:            NA
+40:            NA
+41:            NA
+42:            NA
+    model_seconds
+            <num>
