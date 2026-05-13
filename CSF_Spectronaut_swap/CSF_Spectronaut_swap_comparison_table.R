@@ -148,34 +148,39 @@ writeLines(capture.output(print(rounded)), out_txt)
 cat(sprintf("[table] wrote %s and %s\n", out_csv, out_txt))
 
 ## Wide-format markdown summary -----------------------------------------------
-# One markdown table per SwapState ("post" / "pre") with rows = methods,
-# columns = variants. Each cell shows "TPR / PPV" or "fail" / "—".
-format_cell = function(tpr, ppv, note) {
-  if (!is.na(note)) return(note)
-  if (is.na(tpr) && is.na(ppv)) return("—")
-  sprintf("%.3f / %.3f",
-          ifelse(is.na(tpr), NA_real_, tpr),
-          ifelse(is.na(ppv), NA_real_, ppv))
+# Same column structure as manuscript Table 1: one TPR and one PPV column per
+# variant. Columns are TPR_<variant>, PPV_<variant>. One table per swap state.
+fmt_num = function(x) {
+  if (is.na(x)) NA_character_ else sprintf("%.3f", x)
 }
 write_md_table = function(rows, swap_state, fh) {
   cat(sprintf("\n### %s-swap\n\n", swap_state), file = fh)
-  wide = dcast(rows[SwapState == swap_state],
-               Method ~ Variant,
-               value.var = c("TPR", "PPV", "Note"))
   var_levels = levels(rows$Variant)
-  header = c("Method", var_levels)
-  cat("| ", paste(header, collapse = " | "), " |\n",
-      sep = "", file = fh)
+  wide = dcast(rows[SwapState == swap_state], Method ~ Variant,
+               value.var = c("TPR", "PPV", "Note"))
+  setorder(wide, Method)
+  # Interleaved header: TPR_<v1>, PPV_<v1>, TPR_<v2>, PPV_<v2>, ...
+  # (matches manuscript Table 1 where TPR / PPV are grouped per dataset).
+  header = c("Method", as.vector(rbind(paste0("TPR_", var_levels),
+                                        paste0("PPV_", var_levels))))
+  cat("| ", paste(header, collapse = " | "), " |\n", sep = "", file = fh)
   cat("|", paste(rep("---", length(header)), collapse = "|"), "|\n",
       sep = "", file = fh)
-  setorder(wide, Method)
   for (i in seq_len(nrow(wide))) {
     row = wide[i]
-    cells = sapply(var_levels, function(v) {
-      format_cell(row[[paste0("TPR_", v)]],
-                  row[[paste0("PPV_", v)]],
-                  row[[paste0("Note_", v)]])
-    })
+    cells = character(0)
+    for (v in var_levels) {
+      note = row[[paste0("Note_", v)]]
+      tpr  = row[[paste0("TPR_", v)]]
+      ppv  = row[[paste0("PPV_", v)]]
+      if (!is.na(note)) {
+        cells = c(cells, note, note)
+      } else if (is.na(tpr) && is.na(ppv)) {
+        cells = c(cells, "—", "—")
+      } else {
+        cells = c(cells, fmt_num(tpr), fmt_num(ppv))
+      }
+    }
     cat("| ", as.character(row$Method), " | ",
         paste(cells, collapse = " | "), " |\n",
         sep = "", file = fh)
@@ -185,10 +190,12 @@ out_md = file.path(out_tag, "comparison_table.md")
 fh = file(out_md, open = "w")
 cat(sprintf("# %s — TPR / PPV per method × variant\n\n",
             out_tag), file = fh)
-cat("Cells are `TPR / PPV` at p < 0.05.\n", file = fh)
-cat("`fail` = method errored out;  ",
-    "`see v2_median` = same MSstats internal normalization as v2_median.\n",
-    file = fh)
+cat("Cells are TPR or PPV at p < 0.05. Column suffix is the data ",
+    "transformation/normalization variant.\n",
+    "`fail` = method errored out;  ",
+    "`see v2_median` = same MSstats internal normalization as v2_median;  ",
+    "`—` = method not run for that variant.\n",
+    file = fh, sep = "")
 for (state in levels(rounded$SwapState)) {
   write_md_table(rounded, state, fh)
 }
