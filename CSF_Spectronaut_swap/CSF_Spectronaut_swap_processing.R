@@ -49,7 +49,7 @@ report_path = Sys.getenv(
 )
 variant    = Sys.getenv("VARIANT",    unset = "V1_log2")
 out_suffix = Sys.getenv("OUT_SUFFIX", unset = "")
-out_tag    = Sys.getenv("OUT_TAG",    unset = "")
+out_tag    = Sys.getenv("OUT_TAG",    unset = "all_dilutions")
 exclude_dilutions = Sys.getenv("EXCLUDE_DILUTIONS", unset = "")
 exclude_dilutions = if (nchar(exclude_dilutions) > 0) {
   trimws(strsplit(exclude_dilutions, ",", fixed = TRUE)[[1]])
@@ -69,7 +69,7 @@ cat(sprintf("[config] exclude     = %s\n",
               paste(exclude_dilutions, collapse = ", ") else "(none)"))
 
 data_folder = "."
-variant_dir = paste0(variant, out_tag)
+variant_dir = file.path(out_tag, variant)
 dir.create(variant_dir, recursive = TRUE, showWarnings = FALSE)
 out_dir = function(method) {
   d = file.path(variant_dir, paste0(method, out_suffix))

@@ -8,7 +8,7 @@
 ## table.
 library(data.table)
 
-out_tag = Sys.getenv("OUT_TAG", unset = "")
+out_tag = Sys.getenv("OUT_TAG", unset = "all_dilutions")
 
 read_timing = function(timing_file) {
   if (is.null(timing_file) || !file.exists(timing_file)) {
@@ -97,7 +97,7 @@ for (variant in c("V1_log2", "v2_vsn", "v3_quantile")) {
       p_col    = s[[3]]
       fc_col   = s[[4]]
       dir = method_dirs[[method]]
-      method_dir = file.path(paste0(variant, out_tag), paste0(dir, suffix))
+      method_dir = file.path(out_tag, variant, paste0(dir, suffix))
       file = file.path(method_dir, file_nm)
       timing_file = file.path(method_dir, paste0(dir, "_timing.csv"))
       rows[[length(rows) + 1]] = spectronaut_metric(file, method, variant,
@@ -121,8 +121,9 @@ rounded[, c("TPR", "PPV") := lapply(.SD, round, 3),
 rounded[, preprocess_seconds := round(preprocess_seconds, 1)]
 rounded[, model_seconds      := round(model_seconds, 1)]
 
-out_csv = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".csv")
-out_txt = paste0("CSF_Spectronaut_swap_comparison_table", out_tag, ".txt")
+dir.create(out_tag, recursive = TRUE, showWarnings = FALSE)
+out_csv = file.path(out_tag, "comparison_table.csv")
+out_txt = file.path(out_tag, "comparison_table.txt")
 fwrite(rounded, out_csv)
 writeLines(capture.output(print(rounded)), out_txt)
 cat(sprintf("[table] wrote %s and %s\n", out_csv, out_txt))

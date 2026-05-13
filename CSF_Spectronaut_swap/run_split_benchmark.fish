@@ -5,9 +5,12 @@
 # Usage:
 #   ./run_split_benchmark.fish [OUT_TAG] [EXCLUDE_DILUTIONS]
 #
+# OUT_TAG is the parent run directory (e.g. "all_dilutions" or
+# "no_high_dilutions"); outputs land in <OUT_TAG>/<variant>/<method>{,_preswap}/.
+#
 # Examples:
-#   ./run_split_benchmark.fish                              # canonical
-#   ./run_split_benchmark.fish _no_high_dilutions "1to32,1to64"
+#   ./run_split_benchmark.fish all_dilutions ""
+#   ./run_split_benchmark.fish no_high_dilutions "1to32,1to64"
 #
 # Variants:
 #   V1_log2     : NORMALIZATION=none for both scripts.
@@ -16,7 +19,7 @@
 #                 normalizeBetweenArrays); MSstats's built-in "quantile"
 #                 mode matches that on its summarized intensities.
 
-set TAG  ""
+set TAG  "all_dilutions"
 set EXCL ""
 if test (count $argv) -ge 1
     set TAG $argv[1]
@@ -24,6 +27,7 @@ end
 if test (count $argv) -ge 2
     set EXCL $argv[2]
 end
+mkdir -p $TAG
 
 set SWAP "20250130_163144_CSF dilutions Jan 2025 no normalization_Report.tsv"
 set ORIG "../CSF_Spectronaut/20250130_163144_CSF dilutions Jan 2025 no normalization_Report.tsv"
@@ -32,8 +36,8 @@ echo "TAG=$TAG  EXCLUDE_DILUTIONS=$EXCL"
 
 # Run one variant×swap-state cell: MSstats and non-MSstats in parallel.
 function run_cell --argument variant suffix report norm_msstats norm_nonms
-    set ms_log  run_(string trim "$variant$TAG")_msstats(string trim "$suffix").log
-    set non_log run_(string trim "$variant$TAG")_nonmsstats(string trim "$suffix").log
+    set ms_log  $TAG/run_(string trim "$variant")_msstats(string trim "$suffix").log
+    set non_log $TAG/run_(string trim "$variant")_nonmsstats(string trim "$suffix").log
     echo "  -> $ms_log  +  $non_log  (parallel)"
 
     env OUT_TAG=$TAG EXCLUDE_DILUTIONS=$EXCL REPORT_PATH=$report \

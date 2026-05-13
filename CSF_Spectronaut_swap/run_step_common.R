@@ -15,7 +15,10 @@ report_path = Sys.getenv(
 )
 variant    = Sys.getenv("VARIANT",    unset = "V1_log2")
 out_suffix = Sys.getenv("OUT_SUFFIX", unset = "")
-out_tag    = Sys.getenv("OUT_TAG",    unset = "")
+# OUT_TAG is now the parent run directory (e.g. "all_dilutions" or
+# "no_high_dilutions"), so outputs land in <OUT_TAG>/<variant><OUT_SUFFIX>/.
+# Defaults to "all_dilutions" when not specified.
+out_tag    = Sys.getenv("OUT_TAG",    unset = "all_dilutions")
 exclude_dilutions = Sys.getenv("EXCLUDE_DILUTIONS", unset = "")
 exclude_dilutions = if (nchar(exclude_dilutions) > 0) {
   trimws(strsplit(exclude_dilutions, ",", fixed = TRUE)[[1]])
@@ -85,7 +88,7 @@ true_positives = protein_swap_list[Label == "Positive", Protein]
 all_proteins   = protein_swap_list$Protein
 no_swap        = character(0)
 
-variant_dir = paste0(variant, out_tag)
+variant_dir = file.path(out_tag, variant)
 out_dir = function(method) {
   d = file.path(variant_dir, paste0(method, out_suffix))
   dir.create(d, recursive = TRUE, showWarnings = FALSE)
