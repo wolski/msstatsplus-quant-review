@@ -33,32 +33,47 @@ read_timing = function(timing_file) {
   list(preprocess_seconds = NA_real_, model_seconds = NA_real_)
 }
 
+tpr_ppv = function(p, fc, label, threshold = 0.05) {
+  finite_fc     = is.finite(fc)
+  significant   = !is.na(p) & p < threshold & finite_fc
+  n_disc        = sum(significant, na.rm = TRUE)
+  false_disc    = sum(significant & label == "Negative", na.rm = TRUE)
+  list(
+    TPR = sum(significant & label == "Positive", na.rm = TRUE) /
+          sum(finite_fc & label == "Positive", na.rm = TRUE),
+    PPV = if (n_disc > 0) 1 - false_disc / n_disc else NA_real_
+  )
+}
+
 spectronaut_metric = function(file, method, variant, swap_state, p_col, fc_col,
                               timing_file = NULL) {
   timing = read_timing(timing_file)
   if (!file.exists(file)) {
     return(data.table(Method = method, Variant = variant, SwapState = swap_state,
-                      TPR = NA_real_, PPV = NA_real_,
+                      TPR_pval = NA_real_, PPV_pval = NA_real_,
+                      TPR_FDR  = NA_real_, PPV_FDR  = NA_real_,
                       preprocess_seconds = timing$preprocess_seconds,
                       model_seconds      = timing$model_seconds))
   }
   dt = fread(file)
-  p     = dt[[p_col]]
   fc    = dt[[fc_col]]
   label = dt[["Label"]]
-  finite_fc     = is.finite(fc)
-  significant   = p < 0.05 & finite_fc
-  n_discoveries = sum(significant, na.rm = TRUE)
-  false_disc    = sum(significant & label == "Negative", na.rm = TRUE)
+  # raw p threshold at 0.05
+  m_pval = tpr_ppv(dt[[p_col]], fc, label, threshold = 0.05)
+  # FDR-adjusted threshold at 0.05; method already emits adj.pvalue.
+  adj_col = if ("adj.pvalue" %in% colnames(dt)) "adj.pvalue"
+            else if ("adj.P.Val" %in% colnames(dt)) "adj.P.Val"
+            else if ("FDR" %in% colnames(dt)) "FDR"
+            else NA_character_
+  m_fdr  = if (!is.na(adj_col)) tpr_ppv(dt[[adj_col]], fc, label, threshold = 0.05)
+           else list(TPR = NA_real_, PPV = NA_real_)
 
   data.table(
     Method    = method,
     Variant   = variant,
     SwapState = swap_state,
-    TPR = sum(significant & label == "Positive", na.rm = TRUE) /
-          sum(finite_fc & label == "Positive", na.rm = TRUE),
-    PPV = if (n_discoveries > 0) 1 - false_disc / n_discoveries
-          else NA_real_,
+    TPR_pval = m_pval$TPR, PPV_pval = m_pval$PPV,
+    TPR_FDR  = m_fdr$TPR,  PPV_FDR  = m_fdr$PPV,
     preprocess_seconds = timing$preprocess_seconds,
     model_seconds      = timing$model_seconds
   )
@@ -116,27 +131,24 @@ comparison[, SwapState := factor(SwapState, levels = c("post", "pre"))]
 setorder(comparison, SwapState, Variant, Method)
 
 rounded = copy(comparison)
-rounded[, c("TPR", "PPV") := lapply(.SD, round, 3),
-        .SDcols = c("TPR", "PPV")]
+num_cols = c("TPR_pval", "PPV_pval", "TPR_FDR", "PPV_FDR")
+rounded[, (num_cols) := lapply(.SD, round, 3), .SDcols = num_cols]
 rounded[, preprocess_seconds := round(preprocess_seconds, 1)]
 rounded[, model_seconds      := round(model_seconds, 1)]
 
 # Cells where MSstats methods are *not meaningfully different from v2_median*
 # or where they fail outright. We mark them so the table doesn't look like
 # MSstats was run under vsn or quantile -- it wasn't.
-#   v2_vsn  : MSstats uses equalizeMedians here (= v2_median); blank to NA
-#             to avoid duplicating the v2_median row.
-#   v3_quantile : MSstats's dataProcess(normalization="quantile") + MBimpute
-#                 hits an internal merge bug on this dataset; mark cells
-#                 as 'fail' (Note column) so the absence is explicit.
 rounded[, Note := NA_character_]
 ms_methods = c("MSstats+", "MSstats")
 rounded[Variant == "v2_vsn" & Method %in% ms_methods,
-        `:=`(TPR = NA_real_, PPV = NA_real_,
+        `:=`(TPR_pval = NA_real_, PPV_pval = NA_real_,
+             TPR_FDR = NA_real_,  PPV_FDR  = NA_real_,
              preprocess_seconds = NA_real_, model_seconds = NA_real_,
              Note = "see v2_median")]
 rounded[Variant == "v3_quantile" & Method %in% ms_methods,
-        `:=`(TPR = NA_real_, PPV = NA_real_,
+        `:=`(TPR_pval = NA_real_, PPV_pval = NA_real_,
+             TPR_FDR = NA_real_,  PPV_FDR  = NA_real_,
              preprocess_seconds = NA_real_, model_seconds = NA_real_,
              Note = "fail")]
 
@@ -149,18 +161,21 @@ cat(sprintf("[table] wrote %s and %s\n", out_csv, out_txt))
 
 ## Wide-format markdown summary -----------------------------------------------
 # Same column structure as manuscript Table 1: one TPR and one PPV column per
-# variant. Columns are TPR_<variant>, PPV_<variant>. One table per swap state.
+# variant. Two tables per swap state — one thresholded on raw p, one on FDR
+# (adj.pvalue). Both at threshold 0.05.
 fmt_num = function(x) {
   if (is.na(x)) NA_character_ else sprintf("%.3f", x)
 }
-write_md_table = function(rows, swap_state, fh) {
-  cat(sprintf("\n### %s-swap\n\n", swap_state), file = fh)
+write_md_table = function(rows, swap_state, fh, threshold = c("pval", "FDR")) {
+  threshold = match.arg(threshold)
+  tpr_col = paste0("TPR_", threshold)
+  ppv_col = paste0("PPV_", threshold)
+  label   = if (threshold == "pval") "raw p < 0.05" else "FDR (adj.pvalue) < 0.05"
+  cat(sprintf("\n### %s-swap, %s\n\n", swap_state, label), file = fh)
   var_levels = levels(rows$Variant)
   wide = dcast(rows[SwapState == swap_state], Method ~ Variant,
-               value.var = c("TPR", "PPV", "Note"))
+               value.var = c(tpr_col, ppv_col, "Note"))
   setorder(wide, Method)
-  # Interleaved header: TPR_<v1>, PPV_<v1>, TPR_<v2>, PPV_<v2>, ...
-  # (matches manuscript Table 1 where TPR / PPV are grouped per dataset).
   header = c("Method", as.vector(rbind(paste0("TPR_", var_levels),
                                         paste0("PPV_", var_levels))))
   cat("| ", paste(header, collapse = " | "), " |\n", sep = "", file = fh)
@@ -171,8 +186,8 @@ write_md_table = function(rows, swap_state, fh) {
     cells = character(0)
     for (v in var_levels) {
       note = row[[paste0("Note_", v)]]
-      tpr  = row[[paste0("TPR_", v)]]
-      ppv  = row[[paste0("PPV_", v)]]
+      tpr  = row[[paste0(tpr_col, "_", v)]]
+      ppv  = row[[paste0(ppv_col, "_", v)]]
       if (!is.na(note)) {
         cells = c(cells, note, note)
       } else if (is.na(tpr) && is.na(ppv)) {
@@ -197,7 +212,8 @@ cat("Cells are TPR or PPV at p < 0.05. Column suffix is the data ",
     "`—` = method not run for that variant.\n",
     file = fh, sep = "")
 for (state in levels(rounded$SwapState)) {
-  write_md_table(rounded, state, fh)
+  write_md_table(rounded, state, fh, threshold = "pval")
+  write_md_table(rounded, state, fh, threshold = "FDR")
 }
 close(fh)
 cat(sprintf("[table] wrote %s\n", out_md))
