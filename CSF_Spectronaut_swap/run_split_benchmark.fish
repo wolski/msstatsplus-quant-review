@@ -38,28 +38,28 @@ test -n "$ORIG_REPORT"; and set ORIG $ORIG_REPORT
 
 echo "TAG=$TAG  EXCLUDE_DILUTIONS=$EXCL"
 
-# Run one variant×swap-state cell: MSstats and non-MSstats in parallel.
+# Run one variant×swap-state cell: MSstats then non-MSstats SEQUENTIALLY.
+# Running them in parallel triggers OOM kills on this dataset (each R
+# session uses ~6 GB during dataProcess / aggregateFeatures); the cells
+# themselves are sequenced by the outer loop, so we lose only the
+# within-cell concurrency.
 function run_cell --argument variant suffix report norm_msstats norm_nonms
     set ms_log  $TAG/run_(string trim "$variant")_msstats(string trim "$suffix").log
     set non_log $TAG/run_(string trim "$variant")_nonmsstats(string trim "$suffix").log
-    echo "  -> $ms_log  +  $non_log  (parallel)"
-
+    echo "  -> $ms_log"
     env OUT_TAG=$TAG EXCLUDE_DILUTIONS=$EXCL REPORT_PATH=$report \
         VARIANT=$variant OUT_SUFFIX=$suffix NORMALIZATION=$norm_msstats \
-        Rscript run_msstats.R > $ms_log 2>&1 &
-    set ms_pid $last_pid
-
-    env OUT_TAG=$TAG EXCLUDE_DILUTIONS=$EXCL REPORT_PATH=$report \
-        VARIANT=$variant OUT_SUFFIX=$suffix NORMALIZATION=$norm_nonms \
-        Rscript run_nonmsstats.R > $non_log 2>&1 &
-    set non_pid $last_pid
-
-    wait $ms_pid; set ms_status $status
-    wait $non_pid; set non_status $status
-
+        Rscript run_msstats.R > $ms_log 2>&1
+    set ms_status $status
     if test $ms_status -ne 0
         echo "  ! MSstats failed (status $ms_status) — see $ms_log" >&2
     end
+
+    echo "  -> $non_log"
+    env OUT_TAG=$TAG EXCLUDE_DILUTIONS=$EXCL REPORT_PATH=$report \
+        VARIANT=$variant OUT_SUFFIX=$suffix NORMALIZATION=$norm_nonms \
+        Rscript run_nonmsstats.R > $non_log 2>&1
+    set non_status $status
     if test $non_status -ne 0
         echo "  ! non-MSstats failed (status $non_status) — see $non_log" >&2
     end
