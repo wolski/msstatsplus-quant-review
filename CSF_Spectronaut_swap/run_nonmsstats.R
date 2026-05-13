@@ -53,7 +53,10 @@ if (apply_vsn) {
   tr_pep$intensity_matrix(.func = vsn_normalize_matrix)
 } else if (apply_quantile) {
   tr_pep$log2()
-  tr_pep$intensity_matrix(.func = quantile_normalize_log2_matrix)
+  # force=TRUE because prolfqua's transformer refuses to run on already-
+  # transformed data; without it the quantile step silently no-ops.
+  tr_pep$intensity_matrix(.func = quantile_normalize_log2_matrix,
+                          force = TRUE)
 } else {
   tr_pep$log2()
   tr_pep$robscale()

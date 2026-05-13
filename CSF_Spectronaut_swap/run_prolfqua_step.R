@@ -65,10 +65,13 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
     stopifnot(!is.null(vsn_func))
     tr_norm$intensity_matrix(.func = vsn_func)
   } else if (normalization == "quantile") {
-    # log2 first, then quantile on the log2-scale protein matrix.
+    # log2 first, then quantile on the log2-scale protein matrix. The
+    # transformer flags log2'd data as "transformed" and refuses to run
+    # intensity_matrix on it without force = TRUE -- without that, the
+    # quantile step silently no-ops.
     stopifnot(!is.null(quantile_func))
     tr_norm$log2()
-    tr_norm$intensity_matrix(.func = quantile_func)
+    tr_norm$intensity_matrix(.func = quantile_func, force = TRUE)
   } else {
     # "none" -> prolfquapp default: log2 + robscale at protein level.
     tr_norm$log2()
