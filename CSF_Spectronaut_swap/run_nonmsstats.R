@@ -25,12 +25,16 @@ if (normalization == "equalizeMedians") {
 apply_quantile = (normalization == "quantile")
 
 ## msqrob2 (hurdle) ------------------------------------------------------------
-# Port of the prolfquabenchmark workflow (vignettes/Benchmark_msqrob2.Rmd):
-# precursor LFQData -> normalization at precursor scale ->
-# LFQDataToSummarizedExperiment -> QFeatures -> aggregateFeatures with
-# robustSummary (QFeatures default) -> msqrobHurdle (rlm + glm).
-# preprocess timing covers prep + normalization + aggregation;
-# model timing covers msqrobHurdle + hypothesisTestHurdle.
+# Pipeline:
+#   precursor LFQData -> log2 -> SummarizedExperiment -> QFeatures
+#     -> aggregateFeatures(robustSummary)  (vanilla msqrob2 vignette default)
+#     -> normalize the PROTEIN-LEVEL matrix (vsn / quantile / robscale)
+#     -> msqrobHurdle + hypothesisTestHurdle
+# Normalization is applied AT THE PROTEIN LEVEL, matching prolfqua and the
+# established proteomics convention. Quantile / vsn on the precursor
+# matrix breaks robustSummary's per-protein rlm rollup, so the only
+# place where it's safe (and meaningful) to switch the normalization in
+# this pipeline is post-aggregation.
 t_pre = tic()
 ms2_input = prepare_data_for_limma(merged_input, all_proteins, no_swap)
 ms2_input = as.data.frame(ms2_input)
@@ -48,33 +52,31 @@ config_ms2$set_response("F.PeakArea")
 adata_ms2 = prolfqua::setup_analysis(ms2_input, config_ms2)
 lfq_pep = prolfqua::LFQData$new(adata_ms2, config_ms2)
 
+# log2 at precursor level only (no normalization here).
 tr_pep = lfq_pep$get_Transformer()
-if (apply_vsn) {
-  tr_pep$intensity_matrix(.func = vsn_normalize_matrix)
-} else if (apply_quantile) {
-  # NOTE: quantile cannot be applied here at the precursor scale --
-  # the resulting matrix breaks QFeatures::aggregateFeatures(robustSummary)
-  # (exits with non-zero status during per-protein rlm rollup). Falls
-  # back to log2 only for msqrob2 under NORMALIZATION=quantile; the
-  # other v3_quantile methods (limma, limpa, DEqMS, prolfqua) all do
-  # apply quantile at a level where it's well-behaved.
-  tr_pep$log2()
-} else {
-  tr_pep$log2()
-  tr_pep$robscale()
-}
-lfq_pep_norm = tr_pep$lfq
+tr_pep$log2()
+lfq_pep_log = tr_pep$lfq
 
 # precursor LFQData -> SummarizedExperiment -> QFeatures
-se = prolfqua::LFQDataToSummarizedExperiment(lfqdata = lfq_pep_norm)
+se = prolfqua::LFQDataToSummarizedExperiment(lfqdata = lfq_pep_log)
 pe = QFeatures::QFeatures(list(peptide = se), colData = colData(se))
 
-# Use the QFeatures default (MsCoreUtils::robustSummary) — vanilla msqrob2
-# vignette behaviour. Robust-regression peptide -> protein rollup, no
-# explicit medianPolish override.
+# Aggregate log2 precursors to protein (QFeatures default robustSummary
+# = MsCoreUtils::robustSummary, per-protein rlm rollup).
 pe = QFeatures::aggregateFeatures(
   pe, i = "peptide", fcol = "protein_Id", name = "protein"
 )
+
+# Normalize at PROTEIN level.
+prot_mat = SummarizedExperiment::assay(pe[["protein"]])
+if (apply_vsn) {
+  # vsn expects raw scale; protein matrix is log2 after aggregation.
+  prot_mat = vsn_normalize_matrix(2 ^ prot_mat)
+} else if (apply_quantile) {
+  prot_mat = quantile_normalize_log2_matrix(prot_mat)
+}
+# else: keep the log2 protein matrix as-is (V1_log2 baseline).
+SummarizedExperiment::assay(pe[["protein"]]) = prot_mat
 
 pre_s = toc(t_pre)
 t_mod = tic()

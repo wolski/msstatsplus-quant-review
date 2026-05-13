@@ -106,10 +106,15 @@ Inputs are precomputed once with the helpers in
 
 ### msqrob2 (hurdle) — `run_nonmsstats.R`
 
-- **Preprocess:** `prepare_data_for_limma` → `prolfqua::LFQData` → normalize at
-  precursor scale → `prolfqua::LFQDataToSummarizedExperiment` →
-  `QFeatures::QFeatures` → `aggregateFeatures(fun=MsCoreUtils::robustSummary)`
-  (the QFeatures vignette default — per-protein robust rollup).
+- **Preprocess:** `prepare_data_for_limma` → `prolfqua::LFQData` →
+  **`log2` at precursor level only** → `prolfqua::LFQDataToSummarizedExperiment`
+  → `QFeatures::QFeatures` → `aggregateFeatures(fun=MsCoreUtils::robustSummary)`
+  (the QFeatures vignette default — per-protein robust rollup) →
+  **normalize the resulting protein matrix**: keep log2 (V1), `vsn::justvsn(2^x)`
+  (V2), or `limma::normalizeBetweenArrays(method="quantile")` (V3). Normalization
+  is applied post-aggregation to match prolfqua and avoid the
+  `aggregateFeatures(robustSummary)` instability we saw when vsn/quantile
+  were applied at the precursor scale.
 - **Fit + contrast:** `msqrob2::msqrobHurdle(formula=~ 0 + group_)`
   (intensity = `MASS::rlm`; count = `glm` for MNAR proteins) +
   `msqrob2::hypothesisTestHurdle` with contrast
