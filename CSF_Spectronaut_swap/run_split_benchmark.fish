@@ -29,8 +29,12 @@ if test (count $argv) -ge 2
 end
 mkdir -p $TAG
 
+# Allow callers to override the paired report paths via env vars (e.g.
+# for the `small` subset). Defaults to the full swap + original CSF reports.
 set SWAP "20250130_163144_CSF dilutions Jan 2025 no normalization_Report.tsv"
 set ORIG "../CSF_Spectronaut/20250130_163144_CSF dilutions Jan 2025 no normalization_Report.tsv"
+test -n "$SWAP_REPORT"; and set SWAP $SWAP_REPORT
+test -n "$ORIG_REPORT"; and set ORIG $ORIG_REPORT
 
 echo "TAG=$TAG  EXCLUDE_DILUTIONS=$EXCL"
 

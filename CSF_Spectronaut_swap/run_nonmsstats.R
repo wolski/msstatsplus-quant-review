@@ -52,7 +52,8 @@ config_ms2$set_response("F.PeakArea")
 adata_ms2 = prolfqua::setup_analysis(ms2_input, config_ms2)
 lfq_pep = prolfqua::LFQData$new(adata_ms2, config_ms2)
 
-# log2 at precursor level only (no normalization here).
+# log2 at precursor level only (variant-specific normalization happens
+# at the protein level below).
 tr_pep = lfq_pep$get_Transformer()
 tr_pep$log2()
 lfq_pep_log = tr_pep$lfq
@@ -61,10 +62,16 @@ lfq_pep_log = tr_pep$lfq
 se = prolfqua::LFQDataToSummarizedExperiment(lfqdata = lfq_pep_log)
 pe = QFeatures::QFeatures(list(peptide = se), colData = colData(se))
 
-# Aggregate log2 precursors to protein (QFeatures default robustSummary
+# Center each sample column on its median (vanilla msqrob2 vignette step).
+# Without this, aggregateFeatures(robustSummary) bails on the raw log2
+# precursor matrix during per-protein rlm fits.
+pe = QFeatures::normalize(pe, i = "peptide", method = "center.median",
+                          name = "peptide_norm")
+
+# Aggregate centered log2 precursors to protein (QFeatures default
 # = MsCoreUtils::robustSummary, per-protein rlm rollup).
 pe = QFeatures::aggregateFeatures(
-  pe, i = "peptide", fcol = "protein_Id", name = "protein"
+  pe, i = "peptide_norm", fcol = "protein_Id", name = "protein"
 )
 
 # Normalize at PROTEIN level.
