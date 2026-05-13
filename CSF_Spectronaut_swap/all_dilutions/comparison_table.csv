@@ -1,39 +1,39 @@
 Method,Variant,SwapState,TPR,PPV,preprocess_seconds,model_seconds
 MSstats+,V1_log2,post,0.867,0.88,291.3,10.2
 MSstats,V1_log2,post,0.755,0.894,95,1227
-limpa,V1_log2,post,,,,
-MaxLFQ + limma,V1_log2,post,,,,
-msqrob2,V1_log2,post,,,,
-DEqMS,V1_log2,post,,,,
-prolfqua,V1_log2,post,,,,
-MSstats+,v2_vsn,post,,,,
-MSstats,v2_vsn,post,,,,
-limpa,v2_vsn,post,,,,
-MaxLFQ + limma,v2_vsn,post,,,,
-msqrob2,v2_vsn,post,,,,
-DEqMS,v2_vsn,post,,,,
-prolfqua,v2_vsn,post,,,,
+limpa,V1_log2,post,0.67,0.973,10.8,347.9
+MaxLFQ + limma,V1_log2,post,0.849,0.923,4.9,0
+msqrob2,V1_log2,post,0.929,0.785,5052.7,1.7
+DEqMS,V1_log2,post,0.783,0.907,9.9,0.1
+prolfqua,V1_log2,post,0.892,0.815,38.7,3.2
+MSstats+,v2_vsn,post,0.891,0.817,814.6,10.1
+MSstats,v2_vsn,post,0.821,0.916,336.4,10.7
+limpa,v2_vsn,post,,,30.1,0.2
+MaxLFQ + limma,v2_vsn,post,0.84,0.824,5.1,0
+msqrob2,v2_vsn,post,0.882,0.862,2331.2,1.8
+DEqMS,v2_vsn,post,0.854,0.733,11.9,0.1
+prolfqua,v2_vsn,post,0.849,0.807,38,2.9
 MSstats+,v3_quantile,post,,,,
 MSstats,v3_quantile,post,,,,
-limpa,v3_quantile,post,,,,
-MaxLFQ + limma,v3_quantile,post,,,,
-msqrob2,v3_quantile,post,,,,
-DEqMS,v3_quantile,post,,,,
-prolfqua,v3_quantile,post,,,,
-MSstats+,V1_log2,pre,,,,
-MSstats,V1_log2,pre,,,,
-limpa,V1_log2,pre,,,,
-MaxLFQ + limma,V1_log2,pre,,,,
-msqrob2,V1_log2,pre,,,,
-DEqMS,V1_log2,pre,,,,
-prolfqua,V1_log2,pre,,,,
-MSstats+,v2_vsn,pre,,,,
-MSstats,v2_vsn,pre,,,,
-limpa,v2_vsn,pre,,,,
-MaxLFQ + limma,v2_vsn,pre,,,,
-msqrob2,v2_vsn,pre,,,,
-DEqMS,v2_vsn,pre,,,,
-prolfqua,v2_vsn,pre,,,,
+limpa,v3_quantile,post,0.717,0.916,12.8,494.2
+MaxLFQ + limma,v3_quantile,post,0.91,0.785,5.9,0.1
+msqrob2,v3_quantile,post,0.873,0.889,1605.3,2
+DEqMS,v3_quantile,post,0.882,0.716,10.1,0.1
+prolfqua,v3_quantile,post,0.868,0.893,40.2,2.9
+MSstats+,V1_log2,pre,0.019,0.133,298.3,10.4
+MSstats,V1_log2,pre,0.009,0.095,98.6,10.4
+limpa,V1_log2,pre,0.005,0.2,9.7,359.4
+MaxLFQ + limma,V1_log2,pre,0.005,0.062,4.9,0
+msqrob2,V1_log2,pre,0.024,0.083,1965.4,1.8
+DEqMS,V1_log2,pre,0,0,9.5,0.1
+prolfqua,V1_log2,pre,0.009,0.043,37.9,2.9
+MSstats+,v2_vsn,pre,0.028,0.136,288,10.4
+MSstats,v2_vsn,pre,0.014,0.158,95.9,10.5
+limpa,v2_vsn,pre,,,43.2,0.2
+MaxLFQ + limma,v2_vsn,pre,0.033,0.121,6.3,0
+msqrob2,v2_vsn,pre,0.028,0.162,1558,1.8
+DEqMS,v2_vsn,pre,0.038,0.108,12.6,0.1
+prolfqua,v2_vsn,pre,0.005,0.023,37.6,3
 MSstats+,v3_quantile,pre,,,,
 MSstats,v3_quantile,pre,,,,
 limpa,v3_quantile,pre,,,,
