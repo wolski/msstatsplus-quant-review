@@ -1,0 +1,120 @@
+            Method     Variant SwapState   TPR   PPV preprocess_seconds
+            <fctr>      <fctr>    <fctr> <num> <num>              <num>
+ 1:       MSstats+     V1_log2      post 0.387 0.796              107.6
+ 2:        MSstats     V1_log2      post 0.231 0.721               42.6
+ 3:          limpa     V1_log2      post 0.203 1.000                4.2
+ 4: MaxLFQ + limma     V1_log2      post 0.415 0.926                1.7
+ 5:        msqrob2     V1_log2      post 0.741 0.724              552.5
+ 6:          DEqMS     V1_log2      post 0.321 0.883                4.4
+ 7:       prolfqua     V1_log2      post 0.684 0.829               24.5
+ 8:       MSstats+   v2_median      post 0.703 0.797              120.0
+ 9:        MSstats   v2_median      post 0.580 0.788               42.2
+10:          limpa   v2_median      post 0.561 0.815                4.2
+11: MaxLFQ + limma   v2_median      post 0.703 0.706                1.7
+12:        msqrob2   v2_median      post 0.745 0.702              544.6
+13:          DEqMS   v2_median      post 0.571 0.665                4.1
+14:       prolfqua   v2_median      post 0.693 0.826               25.5
+15:       MSstats+      v2_vsn      post    NA    NA                 NA
+16:        MSstats      v2_vsn      post    NA    NA                 NA
+17:          limpa      v2_vsn      post    NA    NA               11.1
+18: MaxLFQ + limma      v2_vsn      post 0.627 0.787                2.1
+19:        msqrob2      v2_vsn      post 0.637 0.718              568.4
+20:          DEqMS      v2_vsn      post 0.613 0.663                5.5
+21:       prolfqua      v2_vsn      post 0.608 0.787               25.4
+22:       MSstats+ v3_quantile      post    NA    NA                 NA
+23:        MSstats v3_quantile      post    NA    NA                 NA
+24:          limpa v3_quantile      post 0.495 0.868                5.2
+25: MaxLFQ + limma v3_quantile      post 0.675 0.681                1.9
+26:        msqrob2 v3_quantile      post 0.708 0.658              595.3
+27:          DEqMS v3_quantile      post 0.642 0.654                4.8
+28:       prolfqua v3_quantile      post 0.703 0.801               30.9
+29:       MSstats+     V1_log2       pre 0.009 0.083              111.2
+30:        MSstats     V1_log2       pre 0.005 0.050               42.7
+31:          limpa     V1_log2       pre 0.000    NA                4.5
+32: MaxLFQ + limma     V1_log2       pre 0.000 0.000                2.0
+33:        msqrob2     V1_log2       pre 0.038 0.118              553.7
+34:          DEqMS     V1_log2       pre 0.000 0.000                4.4
+35:       prolfqua     V1_log2       pre 0.009 0.056               26.1
+36:       MSstats+   v2_median       pre 0.019 0.098              109.6
+37:        MSstats   v2_median       pre 0.019 0.108               42.6
+38:          limpa   v2_median       pre 0.024 0.156                4.7
+39: MaxLFQ + limma   v2_median       pre 0.028 0.087                2.3
+40:        msqrob2   v2_median       pre 0.047 0.132              571.9
+41:          DEqMS   v2_median       pre 0.024 0.075                4.6
+42:       prolfqua   v2_median       pre 0.009 0.054               24.7
+43:       MSstats+      v2_vsn       pre    NA    NA                 NA
+44:        MSstats      v2_vsn       pre    NA    NA                 NA
+45:          limpa      v2_vsn       pre    NA    NA               11.2
+46: MaxLFQ + limma      v2_vsn       pre 0.024 0.132                2.3
+47:        msqrob2      v2_vsn       pre 0.028 0.098              592.8
+48:          DEqMS      v2_vsn       pre 0.038 0.107                6.0
+49:       prolfqua      v2_vsn       pre 0.005 0.027               28.8
+50:       MSstats+ v3_quantile       pre    NA    NA                 NA
+51:        MSstats v3_quantile       pre    NA    NA                 NA
+52:          limpa v3_quantile       pre 0.009 0.111                5.1
+53: MaxLFQ + limma v3_quantile       pre 0.028 0.083                1.9
+54:        msqrob2 v3_quantile       pre 0.052 0.121              587.6
+55:          DEqMS v3_quantile       pre 0.042 0.118                4.8
+56:       prolfqua v3_quantile       pre 0.005 0.026               27.4
+            Method     Variant SwapState   TPR   PPV preprocess_seconds
+            <fctr>      <fctr>    <fctr> <num> <num>              <num>
+    model_seconds          Note
+            <num>        <char>
+ 1:           8.5          <NA>
+ 2:           8.8          <NA>
+ 3:         104.3          <NA>
+ 4:           0.0          <NA>
+ 5:           1.7          <NA>
+ 6:           0.1          <NA>
+ 7:           3.1          <NA>
+ 8:           8.7          <NA>
+ 9:           8.6          <NA>
+10:         131.1          <NA>
+11:           0.0          <NA>
+12:           1.7          <NA>
+13:           0.1          <NA>
+14:           3.0          <NA>
+15:            NA see v2_median
+16:            NA see v2_median
+17:           0.2          <NA>
+18:           0.0          <NA>
+19:           1.7          <NA>
+20:           0.1          <NA>
+21:           3.2          <NA>
+22:            NA          fail
+23:            NA          fail
+24:         144.8          <NA>
+25:           0.0          <NA>
+26:           1.8          <NA>
+27:           0.1          <NA>
+28:           3.4          <NA>
+29:           8.8          <NA>
+30:           8.8          <NA>
+31:         108.4          <NA>
+32:           0.0          <NA>
+33:           1.9          <NA>
+34:           0.1          <NA>
+35:           3.2          <NA>
+36:           8.8          <NA>
+37:           8.7          <NA>
+38:         137.7          <NA>
+39:           0.0          <NA>
+40:           1.8          <NA>
+41:           0.1          <NA>
+42:           3.2          <NA>
+43:            NA see v2_median
+44:            NA see v2_median
+45:           0.2          <NA>
+46:           0.0          <NA>
+47:           1.9          <NA>
+48:           0.1          <NA>
+49:           3.5          <NA>
+50:            NA          fail
+51:            NA          fail
+52:         142.8          <NA>
+53:           0.0          <NA>
+54:           1.8          <NA>
+55:           0.1          <NA>
+56:           3.3          <NA>
+    model_seconds          Note
+            <num>        <char>

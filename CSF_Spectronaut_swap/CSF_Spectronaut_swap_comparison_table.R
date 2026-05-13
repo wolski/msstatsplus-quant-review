@@ -121,10 +121,77 @@ rounded[, c("TPR", "PPV") := lapply(.SD, round, 3),
 rounded[, preprocess_seconds := round(preprocess_seconds, 1)]
 rounded[, model_seconds      := round(model_seconds, 1)]
 
+# Cells where MSstats methods are *not meaningfully different from v2_median*
+# or where they fail outright. We mark them so the table doesn't look like
+# MSstats was run under vsn or quantile -- it wasn't.
+#   v2_vsn  : MSstats uses equalizeMedians here (= v2_median); blank to NA
+#             to avoid duplicating the v2_median row.
+#   v3_quantile : MSstats's dataProcess(normalization="quantile") + MBimpute
+#                 hits an internal merge bug on this dataset; mark cells
+#                 as 'fail' (Note column) so the absence is explicit.
+rounded[, Note := NA_character_]
+ms_methods = c("MSstats+", "MSstats")
+rounded[Variant == "v2_vsn" & Method %in% ms_methods,
+        `:=`(TPR = NA_real_, PPV = NA_real_,
+             preprocess_seconds = NA_real_, model_seconds = NA_real_,
+             Note = "see v2_median")]
+rounded[Variant == "v3_quantile" & Method %in% ms_methods,
+        `:=`(TPR = NA_real_, PPV = NA_real_,
+             preprocess_seconds = NA_real_, model_seconds = NA_real_,
+             Note = "fail")]
+
 dir.create(out_tag, recursive = TRUE, showWarnings = FALSE)
 out_csv = file.path(out_tag, "comparison_table.csv")
 out_txt = file.path(out_tag, "comparison_table.txt")
 fwrite(rounded, out_csv)
 writeLines(capture.output(print(rounded)), out_txt)
 cat(sprintf("[table] wrote %s and %s\n", out_csv, out_txt))
+
+## Wide-format markdown summary -----------------------------------------------
+# One markdown table per SwapState ("post" / "pre") with rows = methods,
+# columns = variants. Each cell shows "TPR / PPV" or "fail" / "—".
+format_cell = function(tpr, ppv, note) {
+  if (!is.na(note)) return(note)
+  if (is.na(tpr) && is.na(ppv)) return("—")
+  sprintf("%.3f / %.3f",
+          ifelse(is.na(tpr), NA_real_, tpr),
+          ifelse(is.na(ppv), NA_real_, ppv))
+}
+write_md_table = function(rows, swap_state, fh) {
+  cat(sprintf("\n### %s-swap\n\n", swap_state), file = fh)
+  wide = dcast(rows[SwapState == swap_state],
+               Method ~ Variant,
+               value.var = c("TPR", "PPV", "Note"))
+  var_levels = levels(rows$Variant)
+  header = c("Method", var_levels)
+  cat("| ", paste(header, collapse = " | "), " |\n",
+      sep = "", file = fh)
+  cat("|", paste(rep("---", length(header)), collapse = "|"), "|\n",
+      sep = "", file = fh)
+  setorder(wide, Method)
+  for (i in seq_len(nrow(wide))) {
+    row = wide[i]
+    cells = sapply(var_levels, function(v) {
+      format_cell(row[[paste0("TPR_", v)]],
+                  row[[paste0("PPV_", v)]],
+                  row[[paste0("Note_", v)]])
+    })
+    cat("| ", as.character(row$Method), " | ",
+        paste(cells, collapse = " | "), " |\n",
+        sep = "", file = fh)
+  }
+}
+out_md = file.path(out_tag, "comparison_table.md")
+fh = file(out_md, open = "w")
+cat(sprintf("# %s — TPR / PPV per method × variant\n\n",
+            out_tag), file = fh)
+cat("Cells are `TPR / PPV` at p < 0.05.\n", file = fh)
+cat("`fail` = method errored out;  ",
+    "`see v2_median` = same MSstats internal normalization as v2_median.\n",
+    file = fh)
+for (state in levels(rounded$SwapState)) {
+  write_md_table(rounded, state, fh)
+}
+close(fh)
+cat(sprintf("[table] wrote %s\n", out_md))
 print(rounded)

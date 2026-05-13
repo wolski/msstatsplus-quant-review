@@ -48,12 +48,11 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
   adata = prolfqua::setup_analysis(prolfqua_input, config)
   lfqdata = prolfqua::LFQData$new(adata, config)
 
-  # prolfquapp canonical aggregation:
+  # prolfquapp-style aggregation:
   #   precursors -> natural log -> medpolish -> exp -> protein-level (linear)
-  # Then normalize at PROTEIN level (vsn or log2+robscale), matching
-  # prolfquapp::transform_lfqdata. Aggregating in log space then undoing the
-  # log gives a stable additive decomposition; normalization at the protein
-  # scale lets vsn (or robscale) see one value per protein per run.
+  # Then transform at PROTEIN level. Aggregating in log space then undoing
+  # the log gives a stable additive decomposition; normalization at the
+  # protein scale lets optional methods see one value per protein per run.
   tr_log = lfqdata$get_Transformer()$intensity_array(log)
   agg = tr_log$lfq$get_Aggregator("medpolish")
   agg$aggregate()
@@ -79,9 +78,8 @@ run_prolfqua_step = function(merged_input, annotation, all_proteins, no_swap,
     tr_norm$log2()
     tr_norm$intensity_matrix(.func = median_func, force = TRUE)
   } else {
-    # "none" -> prolfquapp default: log2 + robscale at protein level.
+    # "none" -> V1/log2 baseline: log2 only, no additional normalization.
     tr_norm$log2()
-    tr_norm$robscale()
   }
   lfq_protein = tr_norm$lfq
 
