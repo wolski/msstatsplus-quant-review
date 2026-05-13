@@ -35,6 +35,7 @@
 !CSF_Spectronaut_swap/*/
 !CSF_Spectronaut_swap/*/comparison_table.csv
 !CSF_Spectronaut_swap/*/comparison_table.txt
+!CSF_Spectronaut_swap/*/comparison_table.md
 !CSF_Spectronaut_swap/CSF_precursor_swap_visualization.html
 
 # Python swap tool.
