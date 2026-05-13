@@ -52,11 +52,13 @@ tr_pep = lfq_pep$get_Transformer()
 if (apply_vsn) {
   tr_pep$intensity_matrix(.func = vsn_normalize_matrix)
 } else if (apply_quantile) {
+  # NOTE: quantile cannot be applied here at the precursor scale --
+  # the resulting matrix breaks QFeatures::aggregateFeatures(robustSummary)
+  # (exits with non-zero status during per-protein rlm rollup). Falls
+  # back to log2 only for msqrob2 under NORMALIZATION=quantile; the
+  # other v3_quantile methods (limma, limpa, DEqMS, prolfqua) all do
+  # apply quantile at a level where it's well-behaved.
   tr_pep$log2()
-  # force=TRUE because prolfqua's transformer refuses to run on already-
-  # transformed data; without it the quantile step silently no-ops.
-  tr_pep$intensity_matrix(.func = quantile_normalize_log2_matrix,
-                          force = TRUE)
 } else {
   tr_pep$log2()
   tr_pep$robscale()
