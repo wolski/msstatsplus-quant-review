@@ -1,0 +1,315 @@
+---
+title: "Mix of Proteome benchmark — design visualization"
+author: "Generated to accompany Mix_of_Proteome_design.md"
+format:
+  html:
+    toc: true
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+This notebook visualises the three-organism Mix_of_Proteome benchmark
+(E. coli + Human + Yeast at known proportions). Read alongside
+[`Mix_of_Proteome_design.md`](Mix_of_Proteome_design.md). Unlike the CSF /
+K562 dilution-series benchmarks, this dataset has a built-in null class
+(Human, 50 % in every condition) and a built-in positive class (E. coli
+and Yeast, varied) — no swap is needed.
+
+```{r setup}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(patchwork)
+
+theme_set(theme_minimal(base_size = 11))
+
+annotation = fread("Mix_of_Proteome_annotation.csv")
+idmap      = fread("idmapping.tsv")
+
+# Load (or recompute) summarized protein-level data
+sum_path = "MSstats/msstats_summarized.rda"
+if (!file.exists(sum_path)) {
+  library(MSstats)
+  msstats_input = fread("MSstats/msstats_input.csv") |> as.data.frame()
+  msstats_input$AnomalyScores = NA
+  msstats_summarized = dataProcess(msstats_input,
+                                   normalization  = FALSE,
+                                   featureSubset  = "topN",
+                                   n_top_feature  = 100,
+                                   MBimpute       = TRUE,
+                                   summaryMethod  = "TMP",
+                                   numberOfCores  = 4)
+  save(msstats_summarized, file = sum_path)
+} else {
+  load(sum_path)
+}
+
+prot = as.data.table(msstats_summarized$ProteinLevelData)
+prot[, Protein := as.character(Protein)]
+prot[, GROUP   := as.character(GROUP)]
+
+# Attach Organism (3-class label: Human / E. coli / Yeast / NA)
+org_lookup = idmap[, .(Protein = Entry,
+                        Organism = fcase(
+                          grepl("Homo sapiens",      Organism), "Human",
+                          grepl("Escherichia coli",  Organism), "E. coli",
+                          grepl("Saccharomyces|yeast", Organism, ignore.case = TRUE), "Yeast",
+                          default = NA_character_))]
+prot = merge(prot, org_lookup, by = "Protein", all.x = TRUE)
+```
+
+# 1. Acquisition schedule
+
+Each row is one MS run. `Order` is injection order; `Condition` codes the
+mixing ratio (E.coli / Human / Yeast in %). Human is held at 50 % in every
+run; only E. coli (5 → 45 %) and Yeast (45 → 5 %) vary.
+
+```{r schedule, fig.height=4, fig.width=12}
+ann_plot = copy(annotation)
+ann_plot[, Ecoli := as.integer(str_extract(Condition, "(?<=E)[0-9]+"))]
+ann_plot[, Yeast := as.integer(str_extract(Condition, "(?<=Y)[0-9]+"))]
+
+cond_levels = ann_plot[order(Ecoli), unique(Condition)]
+ann_plot[, Condition := factor(Condition, levels = cond_levels)]
+
+ggplot(ann_plot, aes(x = Order, y = Condition, fill = Ecoli)) +
+  geom_point(shape = 21, size = 6, colour = "white", stroke = 0.6) +
+  geom_text(aes(label = BioReplicate), size = 2.6, colour = "grey20") +
+  scale_fill_gradient(low = "#fee5d9", high = "#a50f15",
+                      name = "E. coli %", limits = c(0, 50)) +
+  scale_x_continuous(breaks = 1:18, expand = expansion(add = 0.5)) +
+  labs(title = "Run schedule (Order × Condition)",
+       subtitle = "Number inside each marker = BioReplicate. Conditions ordered by E. coli %.",
+       x = "Injection order", y = NULL) +
+  theme(panel.grid.major.y = element_line(colour = "grey90"),
+        panel.grid.minor.x = element_blank(),
+        axis.text.y = element_text(family = "mono"),
+        legend.position = "right")
+```
+
+The 18 runs are not blocked by condition — they are interleaved in
+injection order, which spreads any temporal drift across all six
+conditions.
+
+# 2. Per-protein abundance heatmap by organism
+
+Rows are proteins (sampled to 250 per organism for legibility), columns are
+runs sorted by condition (E5 → E45). Each row is z-scored. Top facet =
+Human (expected flat across columns), middle = E. coli (expected
+left-to-right gradient), bottom = Yeast (expected right-to-left gradient).
+
+```{r heatmap, fig.height=11, fig.width=12}
+run_order = ann_plot[order(Condition, Order), .(originalRUN = R.FileName, Condition)]
+
+prot_h = prot[!is.na(Organism) & originalRUN %in% run_order$originalRUN]
+
+# z-score per protein
+prot_h[, z := scale(LogIntensities)[, 1], by = Protein]
+prot_h[, z := pmax(pmin(z, 2), -2)]
+
+# Sample 250 proteins per organism
+set.seed(42)
+keep_proteins = prot_h[, .(P = unique(Protein)), by = Organism][
+  , .(P = sample(P, min(.N, 250))), by = Organism]
+prot_h = prot_h[Protein %in% keep_proteins$P]
+
+# Cluster rows within each organism
+make_row_order = function(dat) {
+  m   = dcast(dat, Protein ~ originalRUN, value.var = "z")
+  pids = m$Protein
+  mat = as.matrix(m[, -1, with = FALSE]); mat[is.na(mat)] = 0
+  pids[if (nrow(mat) > 1) hclust(dist(mat))$order else 1]
+}
+ord_by_org = prot_h[, .(P = list(make_row_order(.SD))), by = Organism]
+prot_h[, Protein := factor(Protein,
+                            levels = unlist(ord_by_org$P))]
+prot_h[, originalRUN := factor(originalRUN, levels = run_order$originalRUN)]
+prot_h[, Organism := factor(Organism, levels = c("Human", "E. coli", "Yeast"))]
+
+col_strip = run_order[, .(originalRUN = factor(originalRUN, levels = run_order$originalRUN), Condition)]
+p_strip = ggplot(col_strip, aes(x = originalRUN, y = 1, fill = Condition)) +
+  geom_tile() +
+  scale_fill_brewer(palette = "Spectral", name = "Condition") +
+  scale_x_discrete(expand = c(0, 0)) + scale_y_continuous(expand = c(0, 0)) +
+  theme_void() +
+  theme(legend.position = "top", plot.margin = margin(0, 0, 0, 0))
+
+p_heat = ggplot(prot_h, aes(x = originalRUN, y = Protein, fill = z)) +
+  geom_tile() +
+  facet_grid(Organism ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  scale_fill_gradient2(low = "#2ca02c", mid = "grey90", high = "#d62728",
+                       midpoint = 0, limits = c(-2, 2),
+                       name = "row z-score") +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(title = "Per-protein intensity by organism",
+       subtitle = "Human ~ flat. E. coli increases left→right (E5→E45). Yeast decreases left→right.",
+       x = NULL, y = NULL) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+        strip.text.y.left = element_text(angle = 0, face = "bold"),
+        legend.position = "right",
+        panel.spacing.y = unit(0.4, "lines"))
+
+p_strip / p_heat + plot_layout(heights = c(0.04, 1), guides = "collect") &
+  theme(legend.position = "right")
+```
+
+**What to see:**
+
+- **Human (top).** No left/right gradient — rows are scrambled red/green
+  noise. This is the null class.
+- **E. coli (middle).** Clear gradient: green on the left (E5, E10) → red
+  on the right (E40, E45).
+- **Yeast (bottom).** Mirror of E. coli: red on the left, green on the
+  right.
+
+# 3. Per-protein effect size per pairwise comparison
+
+For each of the 15 condition pairs, plot the density of
+`mean_log2(c1) − mean_log2(c2)` split by organism. Vertical dashed lines
+mark the expected log2FC for each organism in that contrast.
+
+```{r effect_density, fig.height=10, fig.width=12}
+# Pairwise contrasts (matches the 15 in Mixture_of_proteomes_processing.R)
+cond_pct = unique(ann_plot[, .(Condition,
+                                 E = Ecoli, H = 50, Y = Yeast)])
+pairs_dt = CJ(c1 = cond_pct$Condition, c2 = cond_pct$Condition)[
+  as.character(c1) < as.character(c2)]
+
+pairs_dt = merge(pairs_dt, cond_pct[, .(Condition, E1 = E, Y1 = Y)],
+                 by.x = "c1", by.y = "Condition")
+pairs_dt = merge(pairs_dt, cond_pct[, .(Condition, E2 = E, Y2 = Y)],
+                 by.x = "c2", by.y = "Condition")
+pairs_dt[, `:=`(exp_Human = 0,
+                 `exp_E. coli` = log2(E1 / E2),
+                 exp_Yeast    = log2(Y1 / Y2))]
+pairs_dt[, Contrast := paste(c1, "vs", c2)]
+
+per_cond = prot[!is.na(GROUP), .(mean_log = mean(LogIntensities, na.rm = TRUE)),
+                 by = .(Protein, GROUP)]
+per_cond_w = dcast(per_cond, Protein ~ GROUP, value.var = "mean_log")
+
+eff_long = pairs_dt[, {
+  c1n = as.character(c1); c2n = as.character(c2)
+  diff_vec = per_cond_w[[c1n]] - per_cond_w[[c2n]]
+  data.table(Protein = per_cond_w$Protein, diff = diff_vec)
+}, by = .(Contrast, c1, c2,
+           exp_Human, `exp_E. coli`, exp_Yeast)]
+eff_long = merge(eff_long, org_lookup, by = "Protein")
+eff_long = eff_long[!is.na(Organism) & is.finite(diff)]
+
+# Long format for expected lines
+exp_long = melt(unique(pairs_dt[, .(Contrast,
+                                      Human   = exp_Human,
+                                      `E. coli` = `exp_E. coli`,
+                                      Yeast   = exp_Yeast)]),
+                id.vars = "Contrast",
+                variable.name = "Organism", value.name = "expected")
+
+ggplot(eff_long, aes(x = diff, fill = Organism)) +
+  geom_density(alpha = 0.45, colour = NA) +
+  geom_vline(data = exp_long,
+             aes(xintercept = expected, colour = Organism),
+             linetype = 2, linewidth = 0.5) +
+  facet_wrap(~ Contrast, ncol = 3, scales = "free_y") +
+  scale_fill_manual(values = c("Human" = "#7f7f7f",
+                                "E. coli" = "#1f77b4",
+                                "Yeast" = "#2ca02c")) +
+  scale_colour_manual(values = c("Human" = "#7f7f7f",
+                                  "E. coli" = "#1f77b4",
+                                  "Yeast" = "#2ca02c"),
+                      guide = "none") +
+  coord_cartesian(xlim = c(-4.5, 4.5)) +
+  labs(title = "Per-protein log2 fold-change by contrast and organism",
+       subtitle = "Dashed lines = expected log2FC from the mixing design.",
+       x = "log2(c1) − log2(c2)", y = "density", fill = NULL) +
+  theme(legend.position = "top",
+        strip.text = element_text(size = 8))
+```
+
+Human density is centred on 0 in every panel (it is the null class). E. coli
+and Yeast densities are centred on the expected value from the mixing
+design, with the symmetric inversion between organisms visible across
+panels (where E. coli is shifted left, Yeast is shifted right).
+
+# 4. Per-protein within-condition spread by organism
+
+Pooled within-condition SD per protein, by organism. Unlike CSF/K562, no
+operation has been applied to one organism but not the others — so the
+distributions should largely overlap.
+
+```{r sd_density, fig.height=4}
+per_run_stats = prot[!is.na(GROUP) & !is.na(Organism),
+                      .(mean_log = mean(LogIntensities, na.rm = TRUE),
+                        sd_log   = sd(LogIntensities,   na.rm = TRUE),
+                        n        = .N),
+                      by = .(Protein, GROUP, Organism)]
+
+# Pool over conditions: mean of within-condition SDs per protein, weighted by df
+pooled = per_run_stats[, .(sd_pool = sqrt(sum((n - 1) * sd_log^2, na.rm = TRUE) /
+                                            max(sum(n - 1, na.rm = TRUE), 1)),
+                           mean_intensity = mean(mean_log, na.rm = TRUE)),
+                        by = .(Protein, Organism)]
+pooled[, Organism := factor(Organism, levels = c("Human", "E. coli", "Yeast"))]
+
+ggplot(pooled[is.finite(sd_pool) & sd_pool > 0],
+        aes(x = sd_pool, fill = Organism)) +
+  geom_density(alpha = 0.45, colour = NA) +
+  scale_fill_manual(values = c("Human" = "#7f7f7f",
+                                "E. coli" = "#1f77b4",
+                                "Yeast" = "#2ca02c")) +
+  coord_cartesian(xlim = c(0, 1.5)) +
+  labs(title = "Within-condition pooled SD per protein, by organism",
+       x = "sd(log2 intensity) inside each condition (pooled)",
+       y = "density", fill = NULL) +
+  theme(legend.position = "top")
+```
+
+The three densities sit on top of each other — the within-condition spread
+is governed by the measurement noise floor, not by which organism a peptide
+came from. This is why empirical-Bayes variance moderation is *not*
+penalised on this benchmark (contrast with CSF/K562 §5).
+
+# 5. Mean–variance trend by organism
+
+```{r mean_var_trend, fig.height=4}
+ggplot(pooled[is.finite(sd_pool) & sd_pool > 0],
+        aes(x = mean_intensity, y = sd_pool, colour = Organism)) +
+  geom_point(alpha = 0.35, size = 0.7) +
+  geom_smooth(se = FALSE, method = "loess") +
+  scale_colour_manual(values = c("Human" = "#7f7f7f",
+                                  "E. coli" = "#1f77b4",
+                                  "Yeast" = "#2ca02c")) +
+  coord_cartesian(ylim = c(0, 1.5)) +
+  labs(title = "Mean–variance relationship by organism",
+       subtitle = "Trends overlap — no class-asymmetric variance bias.",
+       x = "mean log2 intensity", y = "pooled SD", colour = NULL) +
+  theme(legend.position = "top")
+```
+
+The three loess curves trace approximately the same downward trend (high
+SD at low intensity from drop-out / LOQ, low SD at high intensity), with
+no class-wide vertical separation. Empirical-Bayes moderation sees a
+single, well-defined mean-variance trend and stabilises variance estimates
+without biasing one organism relative to another.
+
+# 6. Take-aways
+
+1. **Ground truth is built into the design**: Human = null (50 % in every
+   condition), E. coli + Yeast = positives with known per-comparison
+   log2FC. No swap, no manufactured null.
+2. **Effect sizes range from 0.17 to 3.17 log2 units** across the 15
+   pairwise comparisons. Adjacent contrasts (e.g. E10 vs E20) are hard;
+   extreme contrasts (E5 vs E45) are easy.
+3. **Within-condition variance is approximately equal across organisms** —
+   the structural disadvantage that variance moderation suffers on
+   CSF/K562 does not apply here. Differences between methods on this
+   dataset reflect the methods, not the design.

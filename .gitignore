@@ -1,43 +1,64 @@
-# Ignore everything by default.
-*
+# Allow files by default; ignore only generated artefacts, binaries, and
+# folders we are not actively working on.
 
-# Track repository metadata and ignore rules.
-!.gitignore
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
 
-# Track the shared benchmark helper used by Spectronaut scripts.
-!benchmark_experiments_functions.R
+# --- R ---
+.Rhistory
+.RData
+.Ruserdata
+Rplots.pdf
+*.Rproj.user/
+.runner_tmp/
+.quarto/
+**/*.quarto_ipynb
+**/*_files/
 
-# Track Spectronaut code folders.
-!CSF_Spectronaut/
-!K562_Spectronaut/
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
 
-# Track code only inside Spectronaut folders.
-!CSF_Spectronaut/*.R
-!CSF_Spectronaut/*.fish
-!K562_Spectronaut/*.R
-!K562_Spectronaut/*.fish
+# --- Logs ---
+*.log
 
-# Precursor-swap benchmark.
-!CSF_Spectronaut_swap/
-!CSF_Spectronaut_swap/*.R
-!CSF_Spectronaut_swap/*.fish
-!CSF_Spectronaut_swap/*.qmd
-!CSF_Spectronaut_swap/*.py
-!CSF_Spectronaut_swap/README.md
-!CSF_Spectronaut_swap/CSF_annotation.csv
-!CSF_Spectronaut_swap/CSF_protein_swap_list.csv
-!CSF_Spectronaut_swap/*_swap_ground_truth.tsv
-!CSF_Spectronaut_swap/*_swap_true_positives.tsv
-!CSF_Spectronaut_swap/*_swap_group_annotation.csv
-!CSF_Spectronaut_swap/CSF_Spectronaut_swap_comparison_table.csv
-!CSF_Spectronaut_swap/CSF_Spectronaut_swap_comparison_table.txt
-# Per-run comparison tables under <run>/ (e.g. all_dilutions/, no_high_dilutions/).
-!CSF_Spectronaut_swap/*/
-!CSF_Spectronaut_swap/*/comparison_table.csv
-!CSF_Spectronaut_swap/*/comparison_table.txt
-!CSF_Spectronaut_swap/*/comparison_table.md
-!CSF_Spectronaut_swap/CSF_precursor_swap_visualization.html
+# --- Archives / large binaries ---
+*.tar.gz
+*.zip
+*.RDS
+*.rds
+*.rda
+*.RData
 
-# Python swap tool.
-!swap_spectronaut_report.py
-!pyproject.toml
+# --- Spectronaut / DIA raw report TSVs (large; swap-derived TSVs are kept) ---
+*_Report.tsv
+*_report.tsv
+*_report_nodecoy.tsv
+orig_*_Report.tsv
+
+# --- Per-run modelling output folders (generated) ---
+**/V1_log2/
+**/V1_log/
+**/v2_median/
+**/v2_vsn/
+**/v3_quantile/
+
+# --- Mix_of_Proteome legacy per-package output dirs (will be regenerated under the new layout) ---
+Mix_of_Proteome/DEqMS/
+Mix_of_Proteome/MSstats/
+Mix_of_Proteome/MSstats+/
+Mix_of_Proteome/limma/
+Mix_of_Proteome/limpa/
+Mix_of_Proteome/mapDIA/
+Mix_of_Proteome/msqrob2/
+
+# --- Out-of-scope folders (moved to ../../out_of_scope/; ignored defensively) ---
+CSF_DIANN/
+K562_DIANN/
+K562_Spectronaut/
+TPCPA/

@@ -1,0 +1,173 @@
+---
+title: "CSF Spectronaut V1 Log2 Diagnostics"
+format:
+  html:
+    toc: true
+    df-print: paged
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup}
+library(data.table)
+library(ggplot2)
+
+variant_dir = "V1_log2"
+
+method_specs = data.table(
+  Method = c(
+    "MSstats+",
+    "MSstats",
+    "limpa",
+    "MaxLFQ + limma",
+    "msqrob2",
+    "DEqMS",
+    "prolfqua"
+  ),
+  Dir = c(
+    "MSstats+",
+    "MSstats",
+    "limpa",
+    "limma",
+    "msqrob2",
+    "DEqMS",
+    "prolfqua"
+  ),
+  File = c(
+    "MSstats+_model.csv",
+    "MSstats_model.csv",
+    "limpa_model.csv",
+    "limma_model.csv",
+    "msqrob2_model.csv",
+    "deqms_model.csv",
+    "prolfqua_model.csv"
+  ),
+  FCCol = c("log2FC", "log2FC", "logFC", "logFC", "logFC", "logFC", "logFC")
+)
+
+method_levels = method_specs$Method
+
+read_model = function(method, dir, file, fc_col) {
+  dt = fread(file.path(variant_dir, dir, file))
+  data.table(
+    Method = method,
+    Protein = dt$Protein,
+    Label = dt$Label,
+    pvalue = dt$pvalue,
+    adj.pvalue = dt$adj.pvalue,
+    logFC = dt[[fc_col]]
+  )
+}
+
+models = rbindlist(
+  Map(
+    read_model,
+    method_specs$Method,
+    method_specs$Dir,
+    method_specs$File,
+    method_specs$FCCol
+  )
+)
+
+models[, Method := factor(Method, levels = method_levels)]
+models[, Label := factor(Label, levels = c("Positive", "Negative"))]
+
+metric_table = function(threshold_col) {
+  threshold = models[[threshold_col]]
+  significant = threshold < 0.05 & is.finite(models$logFC)
+  tmp = copy(models)
+  tmp[, significant := significant]
+
+  out = tmp[, {
+    finite_fc = is.finite(logFC)
+    n_discoveries = sum(significant, na.rm = TRUE)
+    false_discoveries = sum(significant & Label == "Negative", na.rm = TRUE)
+
+    .(
+      CSF_TPR = sum(significant & Label == "Positive", na.rm = TRUE) /
+        sum(finite_fc & Label == "Positive", na.rm = TRUE),
+      CSF_PPV = if (n_discoveries > 0) {
+        1 - false_discoveries / n_discoveries
+      } else {
+        NA_real_
+      },
+      n_estimated_logFC = sum(finite_fc, na.rm = TRUE)
+    )
+  }, by = Method]
+
+  out[, c("CSF_TPR", "CSF_PPV") := lapply(.SD, round, 3),
+      .SDcols = c("CSF_TPR", "CSF_PPV")]
+  out[]
+}
+
+discovery_table = function(threshold_col) {
+  threshold = models[[threshold_col]]
+  significant = threshold < 0.05 & is.finite(models$logFC)
+  tmp = copy(models)
+  tmp[, significant := significant]
+
+  tmp[, .(
+    positive_discoveries = sum(significant & Label == "Positive", na.rm = TRUE),
+    negative_discoveries = sum(significant & Label == "Negative", na.rm = TRUE),
+    total_discoveries = sum(significant, na.rm = TRUE),
+    n_positive = sum(Label == "Positive" & is.finite(logFC), na.rm = TRUE),
+    n_negative = sum(Label == "Negative" & is.finite(logFC), na.rm = TRUE)
+  ), by = Method][]
+}
+
+pvalue_metrics = metric_table("pvalue")
+fdr_metrics = metric_table("adj.pvalue")
+pvalue_discoveries = discovery_table("pvalue")
+fdr_discoveries = discovery_table("adj.pvalue")
+```
+
+## P-Value Histograms
+
+```{r pvalue-histogram, fig.width=11, fig.height=8}
+ggplot(models[is.finite(pvalue)], aes(x = pvalue, fill = Label)) +
+  geom_histogram(binwidth = 0.025, boundary = 0, color = "white") +
+  facet_wrap(~ Method, ncol = 2, scales = "free_y") +
+  scale_fill_manual(values = c(Positive = "#2c7fb8", Negative = "#f03b20")) +
+  coord_cartesian(xlim = c(0, 1)) +
+  labs(x = "p-value", y = "Protein count", fill = "Label") +
+  theme_bw(base_size = 11) +
+  theme(panel.grid.minor = element_blank())
+```
+
+## FDR Histograms
+
+```{r fdr-histogram, fig.width=11, fig.height=8}
+ggplot(models[is.finite(adj.pvalue)], aes(x = adj.pvalue, fill = Label)) +
+  geom_histogram(binwidth = 0.025, boundary = 0, color = "white") +
+  facet_wrap(~ Method, ncol = 2, scales = "free_y") +
+  scale_fill_manual(values = c(Positive = "#2c7fb8", Negative = "#f03b20")) +
+  coord_cartesian(xlim = c(0, 1)) +
+  labs(x = "BH adjusted p-value", y = "Protein count", fill = "Label") +
+  theme_bw(base_size = 11) +
+  theme(panel.grid.minor = element_blank())
+```
+
+## Raw P-Value Threshold Table
+
+Threshold: `pvalue < 0.05`.
+
+```{r pvalue-metrics}
+pvalue_metrics
+```
+
+```{r pvalue-discoveries}
+pvalue_discoveries
+```
+
+## FDR Threshold Table
+
+Threshold: `adj.pvalue < 0.05`.
+
+```{r fdr-metrics}
+fdr_metrics
+```
+
+```{r fdr-discoveries}
+fdr_discoveries
+```

@@ -1,0 +1,8 @@
+Method,CSF_TPR,CSF_PPV,n_estimated_logFC
+MSstats+,0.983,0.994,1786
+MSstats,0.777,1,1786
+limpa,0.714,1,1786
+MaxLFQ + limma,0.88,1,1786
+msqrob2,0.966,1,1786
+DEqMS,0.857,0.993,1786
+prolfqua,0.971,0.994,1786

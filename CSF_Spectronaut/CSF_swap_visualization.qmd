@@ -1,0 +1,366 @@
+---
+title: "CSF Spectronaut benchmark — visualizing the swap"
+author: "Generated to accompany CSF_swap_design.md"
+format:
+  html:
+    toc: true
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+This notebook visualises the CSF Spectronaut dilution dataset before and
+after the run/label swap that turns ~90% of proteins into a synthetic null
+class. Read alongside `CSF_swap_design.md`.
+
+```{r setup}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(patchwork)
+
+theme_set(theme_minimal(base_size = 11))
+
+source("../benchmark_experiments_functions.R")
+
+annotation = fread("CSF_annotation_with_Swap.csv")
+swap_list  = fread("CSF_protein_swap_list.csv")
+load("MSstats/MSstats_summarized.rda")  # base_msstats_summarized
+prot = as.data.table(base_msstats_summarized$ProteinLevelData)
+prot[, Order := as.integer(str_split_i(originalRUN, "Seq", 2))]
+```
+
+# 1. Acquisition schedule and pair structure
+
+Each row in the annotation is one MS run. `Order` is injection order;
+`Condition` is the assigned group; `Pair` (when set) marks the two runs
+whose Negative-protein measurements get exchanged.
+
+```{r schedule, fig.height=5, fig.width=12}
+ann_plot = annotation[Condition != "Blank"]
+ann_plot[, Sample := str_extract(R.FileName, "(Neat|1to[0-9]+)")]
+ann_plot[, y := fifelse(Condition == "Condition1", 2, 1)]
+
+# Build pair-segment data: one row per pair, with start/end coordinates
+pairs_dt = ann_plot[!is.na(Pair),
+                     .(R.FileName, Order, y, Condition, Pair)]
+pair_segs = merge(
+  pairs_dt[Condition == "Condition1", .(Pair, x1 = Order, y1 = y)],
+  pairs_dt[Condition == "Condition2", .(Pair, x2 = Order, y2 = y)],
+  by = "Pair"
+)
+
+# Shade Good vs Bad regions (Good = Order 1-29, Bad = Order 30-40)
+good_max = ann_plot[Label == "Good", max(Order)]
+bad_max  = ann_plot[Label == "Bad",  max(Order)]
+region = data.table(
+  xmin  = c(0.5, good_max + 0.5),
+  xmax  = c(good_max + 0.5, bad_max + 0.5),
+  Label = c("Good", "Bad")
+)
+
+ggplot(ann_plot, aes(x = Order, y = y)) +
+  geom_rect(data = region, inherit.aes = FALSE,
+            aes(xmin = xmin, xmax = xmax, ymin = 0.4, ymax = 2.6,
+                fill = Label), alpha = 0.10) +
+  scale_fill_manual(values = c("Good" = "grey70", "Bad" = "#fdb863",
+                                "Condition1" = "#1f77b4",
+                                "Condition2" = "#d62728"),
+                    breaks = c("Condition1", "Condition2", "Good", "Bad")) +
+  # arcs connecting paired runs
+  geom_curve(data = pair_segs,
+             aes(x = x1, y = y1, xend = x2, yend = y2),
+             curvature = 0.25, colour = "grey55", linewidth = 0.4,
+             inherit.aes = FALSE) +
+  # one point per run; fill = Condition; shape = Dilution
+  geom_point(aes(fill = Condition, shape = Sample),
+             size = 5, colour = "white", stroke = 0.6) +
+  scale_shape_manual(values = c("Neat"  = 21, "1to2"  = 22, "1to4" = 23,
+                                 "1to8"  = 24, "1to16" = 25, "1to32" = 21,
+                                 "1to64" = 22)) +
+  geom_text(data = pair_segs,
+            aes(x = (x1 + x2) / 2, y = (y1 + y2) / 2 + 0.05,
+                label = Pair),
+            size = 3.2, fontface = "bold", colour = "grey25",
+            inherit.aes = FALSE) +
+  geom_text(aes(label = Sample, y = y - 0.18),
+            size = 2.6, colour = "grey30", angle = 35, hjust = 1) +
+  # Good/Bad strip header above plot
+  annotate("text", x = good_max / 2 + 0.5, y = 2.55,
+           label = "Good (canonical Neat vs 1:2)",
+           size = 3, fontface = "italic", colour = "grey25") +
+  annotate("text", x = (good_max + bad_max) / 2 + 0.5, y = 2.55,
+           label = "Bad (mismatched dilutions)",
+           size = 3, fontface = "italic", colour = "#a3550e") +
+  scale_x_continuous(breaks = seq(1, 40, by = 1),
+                      minor_breaks = NULL, expand = expansion(add = 1)) +
+  scale_y_continuous(breaks = c(1, 2),
+                      labels = c("Condition2\n(1:2 mostly)",
+                                 "Condition1\n(Neat mostly)"),
+                      limits = c(0.4, 2.6)) +
+  labs(title = "Run schedule and swap pairs",
+       subtitle = "Curves connect the two runs whose Negative-protein data is exchanged. Background shading marks Good vs Bad annotation regions.",
+       x = "Injection order", y = NULL, fill = NULL, shape = "Dilution") +
+  guides(fill = guide_legend(override.aes = list(shape = 21)),
+         shape = guide_legend(override.aes = list(fill = "grey80"))) +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        legend.position = "top",
+        axis.text.x = element_text(size = 8))
+```
+
+50 % of Cond1 runs (10 of 20) and 50 % of Cond2 runs (10 of 20) are paired;
+the other 50 % stay unpaired. That partial-swap is what produces the null —
+see `CSF_swap_design.md` §4.
+
+# 2. Apply the swap to the protein-level data
+
+We use the post-summarization swap helper here (results are equivalent to
+pre-summarization for this dataset; see §7 of the design doc). Positive
+proteins are untouched; Negative proteins have their `(originalRUN, GROUP)`
+re-attached via the alternating run flip.
+
+```{r apply_swap}
+true_pos = swap_list[Label == "Positive", Protein]
+true_neg = swap_list[Label == "Negative", Protein]
+
+prot_before = copy(prot)
+prot_before[, state := "before swap"]
+
+prot_after = swap_condition_labels(prot, true_pos, true_neg) |> as.data.table()
+prot_after[, state := "after swap"]
+
+prot_all = rbindlist(list(prot_before, prot_after), use.names = TRUE, fill = TRUE)
+prot_all[, class := fifelse(Protein %in% true_pos, "Positive", "Negative")]
+prot_all[, state := factor(state, levels = c("before swap", "after swap"))]
+```
+
+# 3. Heatmap after the swap (Good runs only)
+
+Rows are proteins, top facet is the 10 % Positives (untouched by the swap),
+bottom facet is a sample of the 90 % Negatives (swapped). Columns are the
+**Good** runs only (Order 1-29), sorted by Condition: Cond1 on the left,
+Cond2 on the right. The colour strip above the heatmap labels the column
+Condition. Each row is z-scored — red = high, grey = at the row mean,
+green = low.
+
+```{r heatmap, fig.height=12, fig.width=12}
+good_runs  = annotation[Label == "Good", R.FileName]
+good_order = annotation[Label == "Good"][order(Condition, Order),
+                                          .(Run = R.FileName, Condition, Order)]
+
+# For visualisation we need the run-swap (msqrob2-style): physically move
+# Negative-protein intensities between paired runs. The post-dataProcess
+# helper used in §2 only relabels GROUP and leaves per-run intensities
+# unchanged — invisible in a heatmap plotted by originalRUN.
+pair_map = annotation[!is.na(Pair),
+                       .(Run = R.FileName, Pair, Condition)]
+pair_lookup = merge(
+  pair_map[Condition == "Condition1", .(Pair, Run1 = Run)],
+  pair_map[Condition == "Condition2", .(Pair, Run2 = Run)],
+  by = "Pair"
+)
+partner_map = c(setNames(pair_lookup$Run2, pair_lookup$Run1),
+                setNames(pair_lookup$Run1, pair_lookup$Run2))
+
+prot_runswap = copy(prot)
+# Coerce factor columns to character so map lookups use labels, not factor
+# integer codes. (Indexing a named vector with a factor returns the wrong
+# elements — silent and easy to miss.)
+prot_runswap[, originalRUN := as.character(originalRUN)]
+prot_runswap[, Protein     := as.character(Protein)]
+
+prot_runswap[Protein %in% true_neg & originalRUN %in% names(partner_map),
+             originalRUN := unname(partner_map[originalRUN])]
+prot_runswap[, class := fifelse(Protein %in% true_pos, "Positive",
+                         fifelse(Protein %in% true_neg, "Negative", NA_character_))]
+
+# Keep only the labeled proteins (the swap list defines the benchmark scope)
+# and only the Good runs. Show ALL of them.
+prot_g = prot_runswap[!is.na(class) & originalRUN %in% good_runs]
+
+# Row z-score per protein, clipped for colour stability
+prot_g[, z := scale(LogIntensities)[, 1], by = Protein]
+prot_g[, z := pmax(pmin(z, 2), -2)]
+
+# Cluster rows within each class for readability
+make_row_order = function(dat) {
+  m    = dcast(dat, Protein ~ originalRUN, value.var = "z")
+  pids = m$Protein
+  mat  = as.matrix(m[, -1, with = FALSE])
+  mat[is.na(mat)] = 0
+  ord  = if (nrow(mat) > 1) hclust(dist(mat))$order else 1
+  pids[ord]
+}
+pos_keep = unique(prot_g[class == "Positive", Protein])
+neg_keep = unique(prot_g[class == "Negative", Protein])
+pos_ord  = make_row_order(prot_g[class == "Positive"])
+neg_ord  = make_row_order(prot_g[class == "Negative"])
+
+# Top facet = Positives, Bottom facet = Negatives
+prot_g[, Protein := factor(Protein, levels = c(pos_ord, neg_ord))]
+prot_g[, originalRUN := factor(originalRUN, levels = good_order$Run)]
+prot_g[, class := factor(class, levels = c("Positive", "Negative"))]
+
+# Column-condition strip (the legend the user asked for)
+col_strip = good_order[, .(originalRUN = factor(Run, levels = good_order$Run),
+                             Condition)]
+p_strip = ggplot(col_strip,
+                  aes(x = originalRUN, y = 1, fill = Condition)) +
+  geom_tile() +
+  scale_fill_manual(values = c("Condition1" = "#1f77b4",
+                                "Condition2" = "#d62728"),
+                    name = "Run condition") +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(x = NULL, y = NULL) +
+  theme_void() +
+  theme(legend.position = "top",
+        plot.margin = margin(t = 0, r = 0, b = 0, l = 0))
+
+# Main heatmap (after swap only)
+n_pos = length(pos_keep); n_neg = length(neg_keep)
+p_heat = ggplot(prot_g,
+                 aes(x = originalRUN, y = Protein, fill = z)) +
+  geom_tile() +
+  facet_grid(class ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  scale_fill_gradient2(low = "#2ca02c", mid = "grey90", high = "#d62728",
+                       midpoint = 0, limits = c(-2, 2),
+                       name = "row z-score\n(red high · grey 0 · green low)") +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(title = "Per-protein intensity after the swap (Good runs only)",
+       subtitle = sprintf(
+         "Top: %d Positives — Cond1/Cond2 banding survives. Bottom: %d Negatives — banding scrambled, row variance inflated.",
+         length(pos_keep), length(neg_keep)),
+       x = NULL, y = NULL) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        strip.text.y.left = element_text(angle = 0, face = "bold"),
+        legend.position = "right",
+        panel.spacing.y = unit(0.4, "lines"))
+
+p_strip / p_heat + plot_layout(heights = c(0.04, 1), guides = "collect") &
+  theme(legend.position = "right")
+```
+
+**What to see:**
+
+- **Top facet (Positives, 10 %).** Clear vertical band: Cond1 columns
+  (left) are systematically high (red), Cond2 columns (right) systematically
+  low (green). The dilution signal is intact because Positives were not
+  swapped.
+- **Bottom facet (Negatives, 90 %).** The banding has collapsed — within
+  each condition, columns carry a mixture of red and green cells with no
+  consistent left/right difference. The mean DE has been erased, and the
+  per-row colour spread is visibly larger — the variance inflation derived
+  in §5 of the design doc.
+
+# 4. Per-protein effect size and within-condition variance
+
+Per-protein mean difference and pooled within-condition SD, computed on
+**Good runs only** (`Label == "Good"`, Order 1-29). The Bad runs span
+1:4 — 1:64 dilutions and would inject extra heterogeneity into the SD
+estimate that is unrelated to the σ²+0.25 prediction.
+
+```{r per_protein_stats}
+prot_good = prot_all[originalRUN %in% good_runs]
+
+stats = prot_good[, .(mean_log = mean(LogIntensities, na.rm = TRUE),
+                       sd_log   = sd(LogIntensities,  na.rm = TRUE),
+                       n        = .N),
+                   by = .(Protein, GROUP, state, class)]
+
+wide = dcast(stats, Protein + state + class ~ GROUP,
+             value.var = c("mean_log", "sd_log", "n"))
+
+wide[, mean_diff := mean_log_Condition1 - mean_log_Condition2]
+wide[, sd_pool   := sqrt(((n_Condition1 - 1) * sd_log_Condition1^2 +
+                           (n_Condition2 - 1) * sd_log_Condition2^2) /
+                          pmax(n_Condition1 + n_Condition2 - 2, 1))]
+```
+
+## 4.1 Effect size (mean Cond1 − mean Cond2)
+
+```{r effect_density, fig.height=4}
+ggplot(wide[is.finite(mean_diff)],
+        aes(x = mean_diff, fill = class)) +
+  geom_density(alpha = 0.55) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey40") +
+  facet_wrap(~ state) +
+  scale_fill_manual(values = c("Positive" = "#2ca02c",
+                                "Negative" = "#7f7f7f")) +
+  labs(title = "Per-protein effect size",
+       x = "log2 fold-change (Cond1 − Cond2)", y = "density", fill = NULL) +
+  theme(legend.position = "top")
+```
+
+Before the swap, **both** classes are centred on ~1 log2 (the dilution
+effect). After the swap, Negatives collapse to 0 while Positives stay at 1
+— the manufactured contrast.
+
+## 4.2 Within-condition standard deviation
+
+```{r sd_density, fig.height=4}
+ggplot(wide[is.finite(sd_pool)],
+        aes(x = sd_pool, fill = class)) +
+  geom_density(alpha = 0.55) +
+  facet_wrap(~ state) +
+  scale_fill_manual(values = c("Positive" = "#2ca02c",
+                                "Negative" = "#7f7f7f")) +
+  labs(title = "Within-condition spread (pooled SD)",
+       x = "sd(log2 intensity) inside each condition", y = "density",
+       fill = NULL) +
+  theme(legend.position = "top")
+```
+
+Before the swap, Positives and Negatives have similar spread. **After the
+swap, the Negative density shifts visibly to the right** — exactly the
+σ² → σ² + 0.25 inflation predicted in §5 of the design doc. Positives are
+unchanged because their data was not swapped.
+
+This asymmetry is what biases empirical-Bayes variance moderation against
+methods like limma and DEqMS: the prior is fit on a 90/10 mixture and ends
+up biased toward the inflated Negative variance, which then over-shrinks
+Positive variance estimates upward and depresses both TPR and PPV.
+
+## 4.3 Direct view of the moderation problem
+
+```{r mean_var_trend, fig.height=4}
+mv = wide[is.finite(sd_pool) & state == "after swap"]
+mv[, mean_intensity := 0.5 * (mean_log_Condition1 + mean_log_Condition2)]
+
+ggplot(mv, aes(x = mean_intensity, y = sd_pool, colour = class)) +
+  geom_point(alpha = 0.4, size = 0.7) +
+  geom_smooth(se = FALSE, method = "loess") +
+  scale_colour_manual(values = c("Positive" = "#2ca02c",
+                                  "Negative" = "#7f7f7f")) +
+  labs(title = "Mean–variance relationship after swap",
+       subtitle = "limma's eBayes assumes a single trend; the truth here is bimodal",
+       x = "mean log2 intensity", y = "pooled SD", colour = NULL) +
+  theme(legend.position = "top")
+```
+
+Two roughly parallel mean-variance trends, one per class. Variance
+moderation collapses these into a single trend, biasing each class's
+moderated variance toward the wrong target.
+
+# 5. Take-aways
+
+1. The swap pairs every-other run inside each condition (10 pairs total),
+   and exchanges only Negative-protein measurements.
+2. At the **pair level** the swap looks aggressive — 100 % of proteins flip
+   their apparent direction. At the **condition level** the swap and
+   un-swap halves cancel exactly for Negatives, producing a clean null.
+3. The swap inflates the within-condition variance of Negatives (≈ 0.25
+   log2² extra). This violates the exchangeability assumption that
+   variance-moderation methods rely on, and gives them a built-in TPR/PPV
+   penalty in this benchmark.
