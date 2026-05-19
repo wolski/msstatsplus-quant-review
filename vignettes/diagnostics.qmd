@@ -1,0 +1,71 @@
+---
+title: "Diagnostics — Table 1 & p-value distributions"
+format:
+  html:
+    self-contained: true
+params:
+  subset_dir: "CSF_Spectronaut_protein_swap/good_data"
+  normalization: "log2"
+  base_dir: ".."
+  truth_path: ""
+  truth_kind: "protein_swap"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+})
+source(file.path(params$base_dir, "R/paths.R"))
+source(file.path(params$base_dir, "R/ground_truth.R"))
+source(file.path(params$base_dir, "R/comparison_table.R"))
+source(file.path(params$base_dir, "R/figures.R"))
+
+cell_dir <- file.path(params$base_dir, params$subset_dir,
+                      params$normalization, "swap")
+
+truth_df <- switch(params$truth_kind,
+  protein_swap     = truth_protein_swap(file.path(params$base_dir, params$truth_path)),
+  sample_swap      = truth_sample_swap(file.path(params$base_dir, params$truth_path)),
+  mix_of_proteome  = truth_mix_of_proteome(file.path(params$base_dir, params$truth_path)),
+  stop("Unknown truth_kind: ", params$truth_kind)
+)
+```
+
+## Cell
+
+`r params$subset_dir` / `r params$normalization`
+
+## Table 1
+
+```{r}
+tbl <- build_table1(cell_dir, truth_df)
+knitr::kable(tbl, digits = 3)
+```
+
+## p-value histograms
+
+```{r}
+packages <- c("MSstats+", "MSstats", "MaxLFQ_limma", "DEqMS",
+              "msqrob2", "prolfqua", "limpa")
+model_files <- file.path(cell_dir, packages,
+                         vapply(packages, function(p) .model_filename[[p]], character(1)))
+loaded <- lapply(seq_along(model_files), function(i) {
+  if (!file.exists(model_files[i])) return(NULL)
+  d <- fread(model_files[i])
+  d$Package <- packages[i]
+  d
+})
+combined <- rbindlist(loaded, fill = TRUE)
+if (nrow(combined)) {
+  combined <- label_proteins(as.data.frame(combined), truth_df)
+  print(fig_pvalue_histogram(combined))
+}
+```
+
+## Observed-vs-claimed FDR
+
+```{r}
+if (nrow(combined)) print(fig_fdr_curve(combined))
+```
