@@ -43,6 +43,26 @@ truth_pswap <- read.csv(q("CSF_Spectronaut_protein_swap/CSF_protein_swap_list.cs
 truth_sswap <- read.csv(q("CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv"))
 truth_mix <- truth_mix_of_proteome(q("Mix_of_Proteome/idmapping.tsv"))
 
+# Sanity check — surface stale truth files at render time (especially under
+# `make review-best-effort` which bypasses Make's strict prereq chain).
+# Expected (post-prep): csf ~ 1820, pswap ~ 3041, sswap ~ 3041 (regenerated
+# from the protein-swap universe by R/build_sample_swap_list.R).
+.truth_summary <- data.frame(
+  truth = c("truth_csf", "truth_pswap", "truth_sswap"),
+  n     = c(nrow(truth_csf), nrow(truth_pswap), nrow(truth_sswap)),
+  positives = c(sum(truth_csf$Label == "Positive"),
+                sum(truth_pswap$Label == "Positive"),
+                sum(truth_sswap$Label == "Positive")),
+  expected_n = c(1820, 3041, 3041)
+)
+.truth_summary$status <- ifelse(
+  abs(.truth_summary$n - .truth_summary$expected_n) <= 50,
+  "OK", "STALE — run `make clean-prep && make prep` to regenerate"
+)
+message("[review] truth-set sanity:")
+message(paste(utils::capture.output(print(.truth_summary, row.names = FALSE)),
+              collapse = "\n"))
+
 tpr_ppv <- function(model_csv, truth, thr = 0.05) {
   if (!file.exists(model_csv)) return(data.frame(N=NA, TPR=NA, PPV=NA))
   m <- read.csv(model_csv)
@@ -581,7 +601,7 @@ swap_effect_and_sd <- function(rda_path, truth_df, annotation_csv) {
 ```{r sample-swap-heatmap, fig.height=10, fig.width=10, fig.cap="CSF_Spectronaut_sample_swap good_data (Neat + 1:2, 29 runs) — per-protein intensity after the swap. Top facet: 182 Positives (real DE survives the Cond1/Cond2 column ordering). Bottom facet: 1638 Negatives (banding collapses — manufactured null)."}
 swap_split_heatmap(
   rda_path = q("CSF_Spectronaut_sample_swap/good_data/log2/swap/MSstats/MSstats_summarized.rda"),
-  annotation_csv = q("CSF_Spectronaut_sample_swap/CSF_annotation.csv"),
+  annotation_csv = q("CSF_Spectronaut_sample_swap/annotation.csv"),
   truth_df = truth_sswap,
   title_suffix = "CSF_Spectronaut_sample_swap (good_data)"
 )
@@ -701,7 +721,7 @@ swap_na_heatmap <- function(msstats_input_csv, annotation_csv, truth_df,
 ```{r sample-swap-na, fig.height=10, fig.width=10, fig.cap="CSF_Spectronaut_sample_swap good_data (Neat + 1:2, 29 runs) — precursor-level missingness aggregated to (Protein × Run). Only proteins with at least one missing run are shown; fully observed proteins are omitted. A cell is dark if at least one precursor of that protein has a finite intensity in that run after MSstats's Q-value filtering; white otherwise."}
 swap_na_heatmap(
   msstats_input_csv = q("CSF_Spectronaut_sample_swap/good_data/log2/swap/MSstats/MSstats_input.csv"),
-  annotation_csv    = q("CSF_Spectronaut_sample_swap/CSF_annotation.csv"),
+  annotation_csv    = q("CSF_Spectronaut_sample_swap/annotation.csv"),
   truth_df          = truth_sswap,
   title_suffix      = "CSF_Spectronaut_sample_swap (good_data)"
 )
@@ -760,7 +780,7 @@ are technical dilutions of the same material). The swap induces a
 ss_figs <- swap_effect_and_sd(
   rda_path = q("CSF_Spectronaut_sample_swap/good_data/log2/swap/MSstats/MSstats_summarized.rda"),
   truth_df = truth_sswap,
-  annotation_csv = q("CSF_Spectronaut_sample_swap/CSF_annotation.csv")
+  annotation_csv = q("CSF_Spectronaut_sample_swap/annotation.csv")
 )
 ```
 
@@ -905,7 +925,7 @@ abundance-matched partner in the G2 half of every dilution.
 ```{r protein-swap-heatmap, fig.height=10, fig.width=10, fig.cap="CSF_Spectronaut_protein_swap good_data (neat only, 15 runs) — per-protein intensity. Top facet: Positives (swap participants — banding appears because the swap manufactures the signal between G1 and G2 within the neat-runs subset). Bottom facet: Negatives (untouched raw data — no consistent left/right pattern, since within a single dilution the G1/G2 split is random)."}
 swap_split_heatmap(
   rda_path = q("CSF_Spectronaut_protein_swap/good_data/log2/swap/MSstats/MSstats_summarized.rda"),
-  annotation_csv = q("CSF_Spectronaut_protein_swap/CSF_annotation.csv"),
+  annotation_csv = q("CSF_Spectronaut_protein_swap/annotation.csv"),
   truth_df = truth_pswap,
   title_suffix = "CSF_Spectronaut_protein_swap (good_data, neat only)"
 )
@@ -916,7 +936,7 @@ swap_split_heatmap(
 ```{r protein-swap-na, fig.height=10, fig.width=10, fig.cap="CSF_Spectronaut_protein_swap good_data (neat only) — precursor-level missingness aggregated to (Protein × Run). Only proteins with at least one missing run are shown. The Positive class shows somewhat denser missingness than Negative because the rank-for-rank precursor exchange occasionally drops precursors whose partner has fewer fragments at the same rank."}
 swap_na_heatmap(
   msstats_input_csv = q("CSF_Spectronaut_protein_swap/good_data/log2/swap/MSstats/MSstats_input.csv"),
-  annotation_csv    = q("CSF_Spectronaut_protein_swap/CSF_annotation.csv"),
+  annotation_csv    = q("CSF_Spectronaut_protein_swap/annotation.csv"),
   truth_df          = truth_pswap,
   title_suffix      = "CSF_Spectronaut_protein_swap (good_data, neat only)"
 )
@@ -963,7 +983,7 @@ dataset (Mix_of_Proteome-like) all tools perform similarly.
 ps_figs <- swap_effect_and_sd(
   rda_path = q("CSF_Spectronaut_protein_swap/good_data/log2/swap/MSstats/MSstats_summarized.rda"),
   truth_df = truth_pswap,
-  annotation_csv = q("CSF_Spectronaut_protein_swap/CSF_annotation.csv")
+  annotation_csv = q("CSF_Spectronaut_protein_swap/annotation.csv")
 )
 ```
 
