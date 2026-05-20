@@ -1,0 +1,332 @@
+---
+title: "CSF_Spectronaut_protein_swap data visualization"
+subtitle: "Explicit protein-swap benchmark data"
+format:
+  html:
+    toc: true
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+    embed-resources: true
+  pdf:
+    toc: true
+    fig-width: 9
+    fig-height: 5
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+This vignette uses the same structure as the CSF sample-swap data-visualization
+vignettes, but it describes the explicit protein-swap benchmark. In this
+dataset, the Positive class is created by swapping matched proteins rather than
+by swapping sample labels. The `good_data` subset uses neat samples only, so
+the Positive/Negative labels come from the protein-pair construction and not
+from dilution-level sample swapping.
+
+All quantitative panels in this document read
+`CSF_Spectronaut_protein_swap/good_data/Report.tsv` directly. Intensities come
+from `FG.Quantity`, are transformed with `log2`, deduplicated at
+`(run, protein, precursor)`, and then averaged to one protein-level value per
+run before fold changes and SDs are computed. No MSstats RDA object is used in
+this vignette.
+
+```{r setup}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(patchwork)
+
+theme_set(theme_minimal(base_size = 11))
+
+QUANT_ROOT <- normalizePath(file.path(dirname(knitr::current_input(dir = TRUE)), ".."))
+q <- function(...) file.path(QUANT_ROOT, ...)
+
+annotation <- fread(q("CSF_Spectronaut_protein_swap/good_data/annotation.csv"))
+swap_list <- fread(q("CSF_Spectronaut_protein_swap/CSF_protein_swap_list.csv"))
+pair_truth <- fread(q("CSF_Spectronaut_protein_swap/Report_swap_ground_truth.tsv"))
+
+load_report_protein_run <- function(report_path, annotation) {
+  report <- fread(
+    report_path,
+    sep = "\t",
+    select = c("R.FileName", "PG.ProteinGroups", "EG.PrecursorId", "FG.Quantity")
+  )
+  report <- report[
+    nzchar(PG.ProteinGroups) & is.finite(FG.Quantity) & FG.Quantity > 0
+  ]
+  report <- unique(
+    report,
+    by = c("R.FileName", "PG.ProteinGroups", "EG.PrecursorId")
+  )
+  out <- report[
+    ,
+    .(LogIntensities = mean(log2(FG.Quantity), na.rm = TRUE)),
+    by = .(Protein = PG.ProteinGroups, originalRUN = R.FileName)
+  ]
+  ann <- annotation[, .(originalRUN = R.FileName, GROUP = Condition, Order)]
+  out <- merge(out, ann, by = "originalRUN", all.x = TRUE)
+  out[, Protein := as.character(Protein)]
+  out
+}
+
+prot <- load_report_protein_run(
+  q("CSF_Spectronaut_protein_swap/good_data/Report.tsv"),
+  annotation
+)
+
+true_pos <- swap_list[Label == "Positive", Protein]
+true_neg <- swap_list[Label == "Negative", Protein]
+
+prot[, class := fifelse(Protein %in% true_pos, "Positive",
+                        fifelse(Protein %in% true_neg, "Negative", NA_character_))]
+prot <- prot[!is.na(class)]
+prot[, class := factor(class, levels = c("Negative", "Positive"))]
+```
+
+# Truth-file consistency
+
+The canonical protein-swap truth list is `CSF_protein_swap_list.csv`. The
+pair-construction table is `Report_swap_ground_truth.tsv`; it contains one row
+per matched protein pair and records the expected pair-level log2 fold change.
+The table below checks that the canonical Positive proteins are exactly the
+proteins represented by the pair table.
+
+```{r truth_consistency}
+pair_positive <- unique(c(pair_truth$PG_high, pair_truth$PG_low))
+truth_summary <- data.table(
+  check = c(
+    "canonical truth rows",
+    "canonical Positive proteins",
+    "canonical Negative proteins",
+    "protein-pair rows",
+    "unique pair-table Positive proteins",
+    "canonical Positives missing from pair table",
+    "pair-table proteins missing from canonical Positives"
+  ),
+  value = c(
+    nrow(swap_list),
+    sum(swap_list$Label == "Positive"),
+    sum(swap_list$Label == "Negative"),
+    nrow(pair_truth),
+    length(pair_positive),
+    length(setdiff(true_pos, pair_positive)),
+    length(setdiff(pair_positive, true_pos))
+  )
+)
+
+knitr::kable(truth_summary, caption = "Consistency check between the canonical protein-swap truth list and the protein-pair table used to generate the explicit report.")
+```
+
+# Acquisition schedule
+
+This figure shows the Good-run subset used for the protein-swap benchmark.
+The points are runs from
+`CSF_Spectronaut_protein_swap/good_data/annotation.csv`. In this dataset the
+data modification is at the protein level, not at the run-label level, so no
+sample-pair curves are shown. The plotted data later are read from
+`CSF_Spectronaut_protein_swap/good_data/Report.tsv`.
+
+```{r schedule, fig.height=5, fig.width=12}
+ann_plot <- copy(annotation)
+ann_plot[, Sample := str_extract(R.FileName, "(Neat|1to[0-9]+)")]
+ann_plot[, y := fifelse(Condition == "Condition1", 2, 1)]
+
+ggplot(ann_plot, aes(x = Order, y = y)) +
+  geom_point(aes(colour = Condition, shape = Sample), size = 4, stroke = 1.1) +
+  geom_text(aes(label = Sample, y = y - 0.18), size = 2.6, colour = "grey30", angle = 35, hjust = 1) +
+  scale_colour_manual(values = c(Condition1 = "#1f77b4", Condition2 = "#d62728")) +
+  scale_shape_manual(values = c(Neat = 16, "1to2" = 15)) +
+  scale_x_continuous(breaks = sort(unique(ann_plot$Order)), minor_breaks = NULL, expand = expansion(add = 1)) +
+  scale_y_continuous(breaks = c(1, 2), labels = c("Condition2", "Condition1"), limits = c(0.4, 2.6)) +
+  labs(title = "Run schedule in CSF_Spectronaut_protein_swap/good_data", x = "Injection order", y = NULL, colour = NULL, shape = "Dilution") +
+  theme(panel.grid.major.y = element_blank(), panel.grid.minor.x = element_blank(), legend.position = "top")
+```
+
+# Heatmap of the explicit protein-swap file
+
+This heatmap uses direct report-derived protein/run intensities. For each run,
+precursor-level `FG.Quantity` values are log2-transformed and averaged to one
+value per protein. Rows are proteins from the current protein-swap truth list;
+columns are Good runs. Values are row-z-scored within protein. Positive
+proteins are the protein-pair members and should carry the constructed signal;
+Negative proteins should remain near the null.
+
+```{r heatmap, fig.height=12, fig.width=12}
+good_runs <- annotation$R.FileName
+good_order <- annotation[order(Condition, Order), .(Run = R.FileName, Condition, Order)]
+
+prot_g <- prot[Protein %in% c(true_pos, true_neg) & originalRUN %in% good_runs]
+prot_g[, z := scale(LogIntensities)[, 1], by = Protein]
+prot_g[, z := pmax(pmin(z, 2), -2)]
+
+make_row_order <- function(dat) {
+  m <- dcast(dat, Protein ~ originalRUN, value.var = "z")
+  pids <- m$Protein
+  mat <- as.matrix(m[, -1, with = FALSE])
+  mat[is.na(mat)] <- 0
+  pids[if (nrow(mat) > 1) hclust(dist(mat))$order else 1]
+}
+
+pos_ord <- make_row_order(prot_g[class == "Positive"])
+neg_ord <- make_row_order(prot_g[class == "Negative"])
+prot_g[, Protein := factor(Protein, levels = c(pos_ord, neg_ord))]
+prot_g[, originalRUN := factor(originalRUN, levels = good_order$Run)]
+prot_g[, class := factor(class, levels = c("Positive", "Negative"))]
+
+col_strip <- good_order[, .(originalRUN = factor(Run, levels = good_order$Run), Condition)]
+p_strip <- ggplot(col_strip, aes(x = originalRUN, y = 1, fill = Condition)) +
+  geom_tile() +
+  scale_fill_manual(values = c(Condition1 = "#1f77b4", Condition2 = "#d62728"), name = "Run condition") +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(x = NULL, y = NULL) +
+  theme_void()
+
+p_heat <- ggplot(prot_g, aes(x = originalRUN, y = Protein, fill = z)) +
+  geom_tile() +
+  facet_grid(class ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  scale_fill_gradient2(low = "#2ca02c", mid = "grey90", high = "#d62728", midpoint = 0, limits = c(-2, 2), name = "row z-score") +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(title = "Per-protein intensity in the explicit protein-swap file (Good runs)", x = NULL, y = NULL) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    strip.text.y.left = element_text(angle = 0, face = "bold"),
+    legend.position = "right"
+  )
+
+p_strip / p_heat + plot_layout(heights = c(0.04, 1), guides = "collect")
+```
+
+# Per-protein effect size and within-condition variance
+
+The following panels summarize the same direct report-derived protein/run
+matrix. The effect size is mean log2 intensity in Condition1 minus Condition2.
+The pooled SD is computed from within-condition SDs across runs. Unlike the
+sample-swap benchmark, this design should not make the Negative class a
+within-condition mixture of Neat and 1:2 samples; `good_data` contains neat
+samples only.
+
+```{r per_protein_stats}
+stats <- prot[
+  ,
+  .(
+    mean_log = mean(LogIntensities, na.rm = TRUE),
+    sd_log = sd(LogIntensities, na.rm = TRUE),
+    n = .N
+  ),
+  by = .(Protein, GROUP, class)
+]
+
+wide <- dcast(stats, Protein + class ~ GROUP, value.var = c("mean_log", "sd_log", "n"))
+wide[, mean_diff := mean_log_Condition1 - mean_log_Condition2]
+wide[, sd_pool := sqrt(((n_Condition1 - 1) * sd_log_Condition1^2 +
+                          (n_Condition2 - 1) * sd_log_Condition2^2) /
+                         pmax(n_Condition1 + n_Condition2 - 2, 1))]
+wide[, mean_intensity := 0.5 * (mean_log_Condition1 + mean_log_Condition2)]
+
+sd_summary <- wide[
+  is.finite(sd_pool),
+  .(
+    proteins = .N,
+    median_fc = round(median(mean_diff), 3),
+    mean_fc = round(mean(mean_diff), 3),
+    median_sd = round(median(sd_pool), 3),
+    mean_sd = round(mean(sd_pool), 3),
+    q25_sd = round(quantile(sd_pool, 0.25), 3),
+    q75_sd = round(quantile(sd_pool, 0.75), 3)
+  ),
+  by = class
+]
+```
+
+```{r sd_summary}
+knitr::kable(sd_summary, caption = "Effect-size and pooled within-condition SD summary for the explicit protein-swap good_data report.")
+```
+
+## Effect size
+
+This density plot checks the protein-swap signal. Negative proteins should be
+centered closer to zero. Positive proteins are matched protein-pair members, so
+their effect-size distribution reflects the constructed protein-pair signal
+rather than a sample dilution effect.
+
+```{r effect_density, fig.height=4}
+ggplot(wide[is.finite(mean_diff)], aes(x = mean_diff, fill = class)) +
+  geom_density(alpha = 0.55) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey40") +
+  scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  labs(title = "Per-protein effect size", x = "log2 fold-change (Condition1 - Condition2)", y = "density", fill = NULL) +
+  theme(legend.position = "top")
+```
+
+## Within-condition standard deviation
+
+This density plot checks whether the protein-swap benchmark avoids the
+sample-swap variance artifact. Because `good_data` contains neat samples only,
+Negative proteins should not acquire the same within-condition dilution-mixture
+variance that appears in the sample-swap benchmark.
+
+The pattern shown here is the expected direction for regulated proteins in this
+protein-swap construction. The Positive class contains matched protein-pair
+members and therefore combines the constructed abundance difference with
+protein-specific measurement heterogeneity. The same direction is also
+biologically plausible: in real treatment-control experiments, regulated
+proteins are the proteins that respond to treatment, and that response can add
+between-sample heterogeneity on top of technical variation. It is therefore
+not suspicious that the Positive density is broader and shifted to higher
+pooled SD than the Negative density. Regulated proteins are not expected to be
+systematically less variable than all null proteins.
+
+This is the opposite of the problematic sample-swap pattern. In the authors'
+sample-swap benchmark, the null/Negative class becomes a within-condition
+mixture of Neat and 1:2 measurements, so the Negative density is artificially
+shifted to higher SD than the Positive density. That label-dependent variance
+inflation is a property of the benchmark construction, not a property one
+would generally expect from biological regulation.
+
+```{r sd_density, fig.height=4}
+ggplot(wide[is.finite(sd_pool)], aes(x = sd_pool, fill = class)) +
+  geom_density(alpha = 0.55, colour = "black", linewidth = 0.35) +
+  scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  labs(title = "Within-condition spread (pooled SD)", x = "sd(log2 intensity) inside each condition", y = "density", fill = NULL) +
+  theme(legend.position = "top")
+```
+
+## Mean-variance relationship in the explicit protein-swap file
+
+This plot shows the direct report-derived protein/run matrix. Each point is
+one protein. The x-axis is mean log2 intensity and the y-axis is pooled
+within-condition SD. It is the protein-swap analogue of the sample-swap
+mean-variance diagnostic.
+
+Here the Positive trend being above the Negative trend is compatible with the
+protein-swap design: positives are the constructed regulated proteins. The
+important distinction is that the null class is not forced into a higher
+variance regime by mixing dilution levels inside each condition. This is why
+the protein-swap diagnostic is a better control for variance-moderated methods
+than the sample-swap diagnostic where H0 proteins are made artificially more
+variable than H1 proteins.
+
+```{r mean_var_trend, fig.height=4}
+mv <- wide[is.finite(sd_pool)]
+
+ggplot(mv, aes(x = mean_intensity, y = sd_pool, colour = class)) +
+  geom_point(alpha = 0.4, size = 0.7) +
+  geom_smooth(se = FALSE, method = "loess") +
+  scale_colour_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  labs(
+    title = "Mean-variance relationship in CSF_Spectronaut_protein_swap",
+    subtitle = "Direct report-derived protein/run summaries from good_data",
+    x = "mean log2 intensity",
+    y = "pooled SD",
+    colour = NULL
+  ) +
+  theme(legend.position = "top")
+```

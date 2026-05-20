@@ -1,0 +1,315 @@
+---
+title: "CSF_Spectronaut data visualization"
+subtitle: "Authors' MSstats sample-swap benchmark implementation"
+format:
+  html:
+    toc: true
+    code-fold: true
+    fig-width: 9
+    fig-height: 5
+    embed-resources: true
+  pdf:
+    toc: true
+    fig-width: 9
+    fig-height: 5
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+This vignette reproduces the CSF Spectronaut sample-swap diagnostic from the
+authors' benchmark implementation. The after-swap state is created in memory
+with the same alternating run-label swap used by the MSstats benchmark code.
+
+All quantitative panels in this document use the **MSstats protein-level
+summary table** stored in
+`CSF_Spectronaut/good_data/log2/swap/MSstats/MSstats_summarized.rda`. The
+plotted intensity variable is `LogIntensities`, already on the log2 scale. This
+is intentionally different from the explicit rebuilt sample-swap and
+protein-swap vignettes, which read `Report.tsv` directly.
+
+```{r setup}
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(patchwork)
+
+theme_set(theme_minimal(base_size = 11))
+
+QUANT_ROOT <- normalizePath(file.path(dirname(knitr::current_input(dir = TRUE)), ".."))
+q <- function(...) file.path(QUANT_ROOT, ...)
+
+source(q("benchmark_experiments_functions.R"))
+
+annotation <- fread(q("CSF_Spectronaut/annotation.csv"))
+swap_list <- fread(q("CSF_Spectronaut/CSF_protein_swap_list.csv"))
+
+e <- new.env()
+load(q("CSF_Spectronaut/good_data/log2/swap/MSstats/MSstats_summarized.rda"), envir = e)
+base_msstats_summarized <- e$base_msstats_summarized
+prot <- as.data.table(base_msstats_summarized$ProteinLevelData)
+prot[, Order := as.integer(str_split_i(originalRUN, "Seq", 2))]
+
+make_pair_annotation <- function(annotation) {
+  ann <- copy(annotation)
+  setorder(ann, Order)
+  ann[, Pair := NA_integer_]
+  cond1_idx <- which(ann$Condition == "Condition1")
+  cond2_idx <- which(ann$Condition == "Condition2")
+  flip1 <- cond1_idx[seq(2, length(cond1_idx), by = 2)]
+  flip2 <- cond2_idx[seq(2, length(cond2_idx), by = 2)]
+  n_pairs <- min(length(flip1), length(flip2))
+  ann[c(flip1[seq_len(n_pairs)], flip2[seq_len(n_pairs)]),
+      Pair := rep(seq_len(n_pairs), 2)]
+  ann
+}
+
+annotation <- make_pair_annotation(annotation)
+```
+
+# Acquisition schedule and swap runs
+
+This figure shows the acquisition order and the run pairs used by the authors'
+in-script sample swap. The points are MS runs from `CSF_Spectronaut/annotation.csv`.
+The labels show the dilution sample in each run. Curved lines connect the
+Condition1 and Condition2 runs whose condition labels are exchanged for
+Negative proteins. Positive proteins are not swapped.
+
+```{r schedule, fig.height=5, fig.width=12}
+ann_plot <- annotation[Condition != "Blank"]
+ann_plot[, Sample := str_extract(R.FileName, "(Neat|1to[0-9]+)")]
+ann_plot[, y := fifelse(Condition == "Condition1", 2, 1)]
+pair_segs <- merge(
+  ann_plot[!is.na(Pair) & Condition == "Condition1", .(Pair, x1 = Order, y1 = y)],
+  ann_plot[!is.na(Pair) & Condition == "Condition2", .(Pair, x2 = Order, y2 = y)],
+  by = "Pair"
+)
+
+region <- ann_plot[
+  ,
+  .(xmin = min(Order) - 0.5, xmax = max(Order) + 0.5),
+  by = Label
+]
+
+ggplot(ann_plot, aes(x = Order, y = y)) +
+  geom_rect(
+    data = region,
+    inherit.aes = FALSE,
+    aes(xmin = xmin, xmax = xmax, ymin = 0.4, ymax = 2.6),
+    fill = "grey80",
+    alpha = 0.10
+  ) +
+  geom_curve(
+    data = pair_segs,
+    aes(x = x1, y = y1, xend = x2, yend = y2),
+    curvature = 0.25,
+    colour = "grey55",
+    linewidth = 0.4,
+    inherit.aes = FALSE
+  ) +
+  geom_point(aes(colour = Condition, shape = Sample), size = 4, stroke = 1.1) +
+  geom_text(
+    data = pair_segs,
+    aes(x = (x1 + x2) / 2, y = (y1 + y2) / 2 + 0.06, label = Pair),
+    size = 2.8,
+    colour = "grey35",
+    inherit.aes = FALSE
+  ) +
+  geom_text(aes(label = Sample, y = y - 0.18), size = 2.6, colour = "grey30", angle = 35, hjust = 1) +
+  scale_colour_manual(values = c(Condition1 = "#1f77b4", Condition2 = "#d62728")) +
+  scale_shape_manual(values = c(Neat = 16, "1to2" = 15, "1to4" = 18, "1to8" = 17, "1to16" = 25, "1to32" = 19, "1to64" = 22)) +
+  scale_x_continuous(breaks = seq(1, max(ann_plot$Order), by = 1), minor_breaks = NULL, expand = expansion(add = 1)) +
+  scale_y_continuous(breaks = c(1, 2), labels = c("Condition2", "Condition1"), limits = c(0.4, 2.6)) +
+  labs(title = "Run schedule and paired runs", x = "Injection order", y = NULL, colour = NULL, shape = "Dilution") +
+  theme(panel.grid.major.y = element_blank(), panel.grid.minor.x = element_blank(), legend.position = "top")
+```
+
+# Apply the benchmark swap
+
+The swap is applied to the MSstats protein-level table, not to a rewritten
+Spectronaut report file. For the "before swap" panel, the protein-level
+`LogIntensities` are used as loaded. For the "after swap" panel,
+`swap_condition_labels()` relabels every second run within each condition for
+Negative proteins while leaving Positive proteins unchanged.
+
+```{r apply_swap}
+true_pos <- swap_list[Label == "Positive", Protein]
+true_neg <- swap_list[Label == "Negative", Protein]
+
+prot_before <- copy(prot)
+prot_before[, state := "before swap"]
+
+prot_after <- swap_condition_labels(prot, true_pos, true_neg) |> as.data.table()
+prot_after[, state := "after swap"]
+
+prot_all <- rbindlist(list(prot_before, prot_after), use.names = TRUE, fill = TRUE)
+prot_all[, Protein := as.character(Protein)]
+prot_all[, class := fifelse(Protein %in% true_pos, "Positive",
+                            fifelse(Protein %in% true_neg, "Negative", NA_character_))]
+prot_all <- prot_all[!is.na(class)]
+prot_all[, state := factor(state, levels = c("before swap", "after swap"))]
+prot_all[, class := factor(class, levels = c("Negative", "Positive"))]
+```
+
+# Heatmap after the swap
+
+This heatmap uses the same MSstats protein-level `LogIntensities`. Rows are
+proteins from the benchmark truth list and columns are Good runs only. Values
+are row-z-scored within protein, so the colors show relative high/low
+abundance across runs rather than absolute intensity. The top facet contains
+Positive proteins; the bottom facet contains Negative proteins after the
+sample-swap operation.
+
+```{r heatmap, fig.height=12, fig.width=12}
+good_runs <- annotation[Label == "Good", R.FileName]
+good_order <- annotation[Label == "Good"][order(Condition, Order), .(Run = R.FileName, Condition, Order)]
+
+run_table <- unique(prot[, .(originalRUN, GROUP, Order)])
+setorder(run_table, Order)
+cond1 <- run_table[GROUP == "Condition1", originalRUN]
+cond2 <- run_table[GROUP == "Condition2", originalRUN]
+flip1 <- cond1[seq(2, length(cond1), by = 2)]
+flip2 <- cond2[seq(2, length(cond2), by = 2)]
+partner_map <- c(setNames(flip2, flip1), setNames(flip1, flip2))
+
+prot_runswap <- copy(prot)
+prot_runswap[, originalRUN := as.character(originalRUN)]
+prot_runswap[, Protein := as.character(Protein)]
+prot_runswap[Protein %in% true_neg & originalRUN %in% names(partner_map),
+             originalRUN := unname(partner_map[originalRUN])]
+prot_runswap[, class := fifelse(Protein %in% true_pos, "Positive",
+                                fifelse(Protein %in% true_neg, "Negative", NA_character_))]
+
+prot_g <- prot_runswap[!is.na(class) & originalRUN %in% good_runs]
+prot_g[, z := scale(LogIntensities)[, 1], by = Protein]
+prot_g[, z := pmax(pmin(z, 2), -2)]
+
+make_row_order <- function(dat) {
+  m <- dcast(dat, Protein ~ originalRUN, value.var = "z")
+  pids <- m$Protein
+  mat <- as.matrix(m[, -1, with = FALSE])
+  mat[is.na(mat)] <- 0
+  pids[if (nrow(mat) > 1) hclust(dist(mat))$order else 1]
+}
+
+pos_ord <- make_row_order(prot_g[class == "Positive"])
+neg_ord <- make_row_order(prot_g[class == "Negative"])
+prot_g[, Protein := factor(Protein, levels = c(pos_ord, neg_ord))]
+prot_g[, originalRUN := factor(originalRUN, levels = good_order$Run)]
+prot_g[, class := factor(class, levels = c("Positive", "Negative"))]
+
+col_strip <- good_order[, .(originalRUN = factor(Run, levels = good_order$Run), Condition)]
+p_strip <- ggplot(col_strip, aes(x = originalRUN, y = 1, fill = Condition)) +
+  geom_tile() +
+  scale_fill_manual(values = c(Condition1 = "#1f77b4", Condition2 = "#d62728"), name = "Run condition") +
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(x = NULL, y = NULL) +
+  theme_void()
+
+p_heat <- ggplot(prot_g, aes(x = originalRUN, y = Protein, fill = z)) +
+  geom_tile() +
+  facet_grid(class ~ ., scales = "free_y", space = "free_y", switch = "y") +
+  scale_fill_gradient2(low = "#2ca02c", mid = "grey90", high = "#d62728", midpoint = 0, limits = c(-2, 2), name = "row z-score") +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(title = "Per-protein intensity after the benchmark swap (Good runs only)", x = NULL, y = NULL) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    strip.text.y.left = element_text(angle = 0, face = "bold"),
+    legend.position = "right"
+  )
+
+p_strip / p_heat + plot_layout(heights = c(0.04, 1), guides = "collect")
+```
+
+# Per-protein effect size and within-condition variance
+
+The following panels summarize the MSstats protein-level data by protein,
+condition, class, and swap state. For each protein, the effect size is the mean
+`LogIntensities` in Condition1 minus the mean in Condition2. The pooled SD is
+computed from the within-condition SDs of `LogIntensities`.
+
+```{r per_protein_stats}
+prot_good <- prot_all[originalRUN %in% good_runs]
+stats <- prot_good[
+  ,
+  .(
+    mean_log = mean(LogIntensities, na.rm = TRUE),
+    sd_log = sd(LogIntensities, na.rm = TRUE),
+    n = .N
+  ),
+  by = .(Protein, GROUP, state, class)
+]
+
+wide <- dcast(stats, Protein + state + class ~ GROUP, value.var = c("mean_log", "sd_log", "n"))
+wide[, mean_diff := mean_log_Condition1 - mean_log_Condition2]
+wide[, sd_pool := sqrt(((n_Condition1 - 1) * sd_log_Condition1^2 +
+                          (n_Condition2 - 1) * sd_log_Condition2^2) /
+                         pmax(n_Condition1 + n_Condition2 - 2, 1))]
+wide[, mean_intensity := 0.5 * (mean_log_Condition1 + mean_log_Condition2)]
+```
+
+## Effect size
+
+This density plot shows the per-protein log2 fold change. Before the swap,
+both Positive and Negative proteins carry the CSF dilution effect. After the
+authors' sample swap, Negative proteins are centered near zero while Positive
+proteins retain the dilution effect.
+
+```{r effect_density, fig.height=4}
+ggplot(wide[is.finite(mean_diff)], aes(x = mean_diff, fill = class)) +
+  geom_density(alpha = 0.55) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey40") +
+  facet_wrap(~ state) +
+  scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  labs(title = "Per-protein effect size", x = "log2 fold-change (Condition1 - Condition2)", y = "density", fill = NULL) +
+  theme(legend.position = "top")
+```
+
+## Within-condition standard deviation
+
+This density plot shows the pooled within-condition SD of the same MSstats
+protein-level `LogIntensities`. After the sample swap, Negative proteins have
+higher within-condition spread because each condition contains a mixture of
+Neat and 1:2 measurements for those proteins. Positive proteins are not
+swapped, so their spread remains lower.
+
+```{r sd_density, fig.height=4}
+ggplot(wide[is.finite(sd_pool)], aes(x = sd_pool, fill = class)) +
+  geom_density(alpha = 0.55, colour = "black", linewidth = 0.35) +
+  facet_wrap(~ state) +
+  scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  labs(title = "Within-condition spread (pooled SD)", x = "sd(log2 intensity) inside each condition", y = "density", fill = NULL) +
+  theme(legend.position = "top")
+```
+
+## Mean-variance relationship after swap
+
+This scatter plot shows each protein after the swap. The x-axis is mean log2
+intensity across the two conditions and the y-axis is pooled within-condition
+SD. The separate trends for Positive and Negative proteins are the variance
+moderation problem: methods using one shared mean-variance trend are asked to
+moderate across two label-dependent variance regimes.
+
+```{r mean_var_trend, fig.height=4}
+mv <- wide[is.finite(sd_pool) & state == "after swap"]
+
+ggplot(mv, aes(x = mean_intensity, y = sd_pool, colour = class)) +
+  geom_point(alpha = 0.4, size = 0.7) +
+  geom_smooth(se = FALSE, method = "loess") +
+  scale_colour_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  labs(
+    title = "Mean-variance relationship after swap",
+    subtitle = "The benchmark creates separate H1 and H0 variance behaviour",
+    x = "mean log2 intensity",
+    y = "pooled SD",
+    colour = NULL
+  ) +
+  theme(legend.position = "top")
+```

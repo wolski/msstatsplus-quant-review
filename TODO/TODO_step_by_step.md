@@ -154,31 +154,36 @@ Structure mirrors `WhatWeStillNeed.md` end-section. The qmd reads aggregated CSV
 - Summary of what MSstatsPlus claims.
 
 **7.2 Benchmark Table 1 — biorxiv vs resubmission**
-- Reproduce the two Table 1 variants from the manuscript (p-value vs FDR thresholding), with explicit threshold values and provenance.
-- Describe how CSF and K562 benchmarks were constructed.
+- Reproduce the two Table 1 variants from the manuscript (p-value vs FDR thresholding), with explicit threshold values and provenance. Reference the biorxiv preprint.
 
-**7.3 Our reproduction (CSF_Spectronaut)**
+**7.3 Introduce the benchmark datasets** (CSF and K562 — describe both even though only CSF is re-analysed)
+- How they were constructed (dilution series; species mix; sample-swap protocol).
+- Table: number of samples per dilution (for CSF and K562).
+- Swap-schema figure: reuse Figure 1 from [CSF_swap_visualization.qmd](../CSF_Spectronaut/CSF_swap_visualization.qmd).
+- Table: samples per group; `<good>` (= neat / neat+1/2) vs `<bad>` (higher dilutions) counts per group.
+
+**7.4 Our reproduction (CSF_Spectronaut)**
 - Table 1 from our run, p-value and FDR, `all_data` and `good_data`. Note numerical drift due to msqrob2 fast path.
 - Contrast with `Mix_of_Proteome` `all_data` Table 1. Expect Mix-of-Proteomes to look uniform across tools; CSF `good_data` to look different — that asymmetry motivates the rest of the review.
 - p-value distribution histograms for `good_data` (uses `diagnostics.qmd`). Discuss H0 uniformity expectation and what non-uniformity implies.
 
-**7.4 The Sample Swap benchmark dataset**
+**7.5 The Sample Swap benchmark dataset**
 - Figure 1 from `CSF_swap_visualization.qmd` (swap schema).
 - Visualisations from `swap_visualization.qmd` parameterised on `CSF_Spectronaut_sample_swap`: heatmap (`all_data`), NA heatmap (`all_data`), density plots (`good_data`).
 - Per-protein effect size and within-condition variance figures (from same qmd).
 - Discussion of variance differences H0 vs H1 and how prior-N drives shrinkage.
 - Table 1 for `good_data` and `small_good_data`, contrasting sample-size effects.
 
-**7.5 The Protein Swap benchmark dataset**
-- Schematic figure of the protein swap (to be drawn — see §8.4).
+**7.6 The Protein Swap benchmark dataset**
+- Schematic figure of the protein swap (to be drawn — see §8.4 / `vignettes/figures/`).
 - Same visualisation suite on `CSF_Spectronaut_protein_swap` (`all_data` heatmaps; `good_data` density; effect-size/variance scatter).
 
-**7.6 Benchmark results — protein swap**
+**7.7 Benchmark results — protein swap**
 - Compare `good_data` (= neat only) on protein_swap vs `all_data` on Mix_of_Proteome — expect similar performance profiles across tools.
 - Contrast with sample_swap `good_data` to highlight the variance-shrinkage failure mode.
 - Show `all_data` and `small` for protein_swap, contrasted with sample_swap counterparts.
 
-**7.7 Conclusions** — placeholder.
+**7.8 Conclusions** — placeholder.
 
 ---
 

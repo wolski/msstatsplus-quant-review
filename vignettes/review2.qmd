@@ -1,0 +1,1351 @@
+---
+title: "Review letter on the MSstats+ benchmark reanalysis"
+subtitle: "CSF Spectronaut sample-swap and protein-swap checks"
+author: "Witold Wolski"
+date: today
+format:
+  html:
+    self-contained: true
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    fig-width: 8
+    fig-height: 5
+  pdf:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    fig-width: 8
+    fig-height: 5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center"
+)
+
+suppressPackageStartupMessages({
+  library(data.table)
+  library(dplyr)
+  library(ggplot2)
+  library(knitr)
+  library(patchwork)
+  library(tidyr)
+})
+
+QUANT_ROOT <- normalizePath(
+  file.path(dirname(knitr::current_input(dir = TRUE)), ".."),
+  mustWork = FALSE
+)
+if (!dir.exists(QUANT_ROOT)) {
+  QUANT_ROOT <- normalizePath("..", mustWork = FALSE)
+}
+q <- function(...) file.path(QUANT_ROOT, ...)
+
+source(q("R/ground_truth.R"))
+source(q("benchmark_experiments_functions.R"))
+
+model_filename <- list(
+  "MSstats"      = "MSstats_model.csv",
+  "MSstats+"     = "MSstats+_model.csv",
+  "MaxLFQ_limma" = "limma_model.csv",
+  "DEqMS"        = "deqms_model.csv",
+  "msqrob2"      = "msqrob2_model.csv",
+  "prolfqua"     = "prolfqua_model.csv",
+  "limpa"        = "limpa_model.csv"
+)
+packages <- names(model_filename)
+
+safe_read_csv <- function(path) {
+  if (!file.exists(path)) {
+    return(NULL)
+  }
+  tryCatch(read.csv(path), error = function(e) NULL)
+}
+
+truth_sets <- list(
+  csf = read.csv(q("CSF_Spectronaut/CSF_protein_swap_list.csv")),
+  protein_swap = read.csv(q("CSF_Spectronaut_protein_swap/CSF_protein_swap_list.csv")),
+  sample_swap = read.csv(q("CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv"))
+)
+
+expected_cells <- dplyr::bind_rows(
+  tidyr::expand_grid(
+    folder = "CSF_Spectronaut",
+    dataset = c("all_data", "good_data"),
+    normalization = "log2",
+    truth_key = "csf"
+  ),
+  tidyr::expand_grid(
+    folder = "CSF_Spectronaut_protein_swap",
+    dataset = c("all_data", "good_data", "small", "small_good_data"),
+    normalization = c("log2", "median"),
+    truth_key = "protein_swap"
+  ),
+  tidyr::expand_grid(
+    folder = "CSF_Spectronaut_sample_swap",
+    dataset = c("all_data", "good_data", "small_good_data"),
+    normalization = c("log2", "median"),
+    truth_key = "sample_swap"
+  ),
+)
+
+folder_label <- c(
+  CSF_Spectronaut = "Authors' CSF sample-swap benchmark",
+  CSF_Spectronaut_protein_swap = "Protein-swap benchmark",
+  CSF_Spectronaut_sample_swap = "Rebuilt sample-swap benchmark"
+)
+
+model_path <- function(folder, dataset, normalization, package) {
+  q(folder, dataset, normalization, "swap", package, model_filename[[package]])
+}
+
+cell_stamp <- function(folder, dataset, normalization) {
+  q(folder, dataset, normalization, "swap", ".stamp")
+}
+
+diagnostics_path <- function(folder, dataset, normalization) {
+  q(folder, dataset, normalization, "swap", "diagnostics.html")
+}
+
+extract_csf_dilution <- function(run_name) {
+  dilution <- sub("^.*Tulum_", "", run_name)
+  sub("CSF-DD.*$", "", dilution)
+}
+
+protein_swap_dataset_composition <- function() {
+  dataset_order <- c("all_data", "good_data", "small", "small_good_data")
+  dilution_order <- c("Neat", "1to2", "1to4", "1to8", "1to16", "1to32", "1to64")
+
+  out <- data.table::rbindlist(lapply(dataset_order, function(dataset) {
+    annotation_path <- q("CSF_Spectronaut_protein_swap", dataset, "annotation.csv")
+    annotation <- data.table::fread(annotation_path)
+    annotation[, Dataset := dataset]
+    annotation[, Dilution := extract_csf_dilution(R.FileName)]
+    counts <- annotation[, .N, by = .(Dataset, Label, Dilution, Condition)]
+    data.table::dcast(
+      counts,
+      Dataset + Label + Dilution ~ Condition,
+      value.var = "N",
+      fill = 0
+    )
+  }), use.names = TRUE, fill = TRUE)
+
+  if (!"Condition1" %in% names(out)) out[, Condition1 := 0L]
+  if (!"Condition2" %in% names(out)) out[, Condition2 := 0L]
+
+  out[, Total := Condition1 + Condition2]
+  out[, Dataset := factor(Dataset, levels = dataset_order)]
+  out[, Dilution := factor(Dilution, levels = dilution_order)]
+  out[order(Dataset, Label, Dilution)]
+}
+
+model_inventory <- expected_cells |>
+  tidyr::crossing(Package = packages) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    model_csv = model_path(folder, dataset, normalization, Package),
+    model_exists = file.exists(model_csv),
+    model_rows = {
+      model <- safe_read_csv(model_csv)
+      if (is.null(model)) NA_integer_ else nrow(model)
+    }
+  ) |>
+  dplyr::ungroup()
+
+cell_inventory <- model_inventory |>
+  dplyr::summarise(
+    models_present = sum(model_exists),
+    models_expected = dplyr::n(),
+    complete_models = models_present == models_expected,
+    .by = c(folder, dataset, normalization, truth_key)
+  ) |>
+  dplyr::rowwise() |>
+  dplyr::mutate(
+    stamp_exists = file.exists(cell_stamp(folder, dataset, normalization)),
+    diagnostics_exists = file.exists(diagnostics_path(folder, dataset, normalization))
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(
+    benchmark = unname(folder_label[folder]),
+    status = dplyr::case_when(
+      complete_models & stamp_exists ~ "complete",
+      models_present > 0 ~ "partial",
+      TRUE ~ "not yet available"
+    )
+  ) |>
+  dplyr::arrange(folder, dataset, normalization)
+
+tpr_ppv <- function(model_csv, truth, threshold_col = "pvalue", thr = 0.05) {
+  model <- safe_read_csv(model_csv)
+  if (is.null(model) || !threshold_col %in% colnames(model)) {
+    return(data.frame(N = NA_integer_, TPR = NA_real_, PPV = NA_real_))
+  }
+  if ("Label" %in% colnames(model)) {
+    model$Label <- NULL
+  }
+  model <- merge(model, truth, by = "Protein")
+  fc_col <- if ("log2FC" %in% colnames(model)) "log2FC" else "logFC"
+  if (!fc_col %in% colnames(model)) {
+    return(data.frame(N = nrow(model), TPR = NA_real_, PPV = NA_real_))
+  }
+  finite_fc <- is.finite(model[[fc_col]])
+  hit <- !is.na(model[[threshold_col]]) & model[[threshold_col]] < thr & finite_fc
+  denom_pos <- sum(finite_fc & model$Label == "Positive", na.rm = TRUE)
+  tpr <- if (denom_pos > 0) {
+    sum(hit & model$Label == "Positive", na.rm = TRUE) / denom_pos
+  } else {
+    NA_real_
+  }
+  ppv <- if (sum(hit) > 0) {
+    1 - sum(hit & model$Label == "Negative", na.rm = TRUE) / sum(hit)
+  } else {
+    NA_real_
+  }
+  data.frame(N = nrow(model), TPR = round(tpr, 3), PPV = round(ppv, 3))
+}
+
+cell_table <- function(folder, dataset, normalization, truth_key) {
+  truth <- truth_sets[[truth_key]]
+  rows <- lapply(packages, function(pkg) {
+    f <- model_path(folder, dataset, normalization, pkg)
+    raw <- tpr_ppv(f, truth, "pvalue", 0.05)
+    fdr <- tpr_ppv(f, truth, "adj.pvalue", 0.05)
+    data.frame(
+      Package = pkg,
+      N = raw$N,
+      TPR_raw_p05 = raw$TPR,
+      PPV_raw_p05 = raw$PPV,
+      TPR_FDR_05 = fdr$TPR,
+      PPV_FDR_05 = fdr$PPV,
+      Model = ifelse(file.exists(f), "present", "missing")
+    )
+  })
+  dplyr::bind_rows(rows)
+}
+
+all_results <- purrr::pmap_dfr(
+  cell_inventory,
+  function(folder, dataset, normalization, truth_key, models_present,
+           models_expected, complete_models, stamp_exists, diagnostics_exists,
+           benchmark, status) {
+    tab <- cell_table(folder, dataset, normalization, truth_key)
+    tab$folder <- folder
+    tab$Benchmark <- benchmark
+    tab$Dataset <- dataset
+    tab$Normalization <- normalization
+    tab$Cell_status <- status
+    tab
+  }
+)
+
+truth_summary <- data.frame(
+  Truth_set = c(
+    "Authors' CSF sample-swap list",
+    "Protein-swap list",
+    "Rebuilt sample-swap list"
+  ),
+  Rows = vapply(truth_sets, nrow, integer(1)),
+  Positives = vapply(truth_sets, function(x) sum(x$Label == "Positive"), integer(1)),
+  Negatives = vapply(truth_sets, function(x) sum(x$Label == "Negative"), integer(1))
+)
+
+compact_cell_inventory <- cell_inventory |>
+  dplyr::transmute(
+    Benchmark = benchmark,
+    Dataset = dataset,
+    Normalization = normalization,
+    Models = paste0(models_present, "/", models_expected),
+    Complete = complete_models,
+    Stamp = stamp_exists,
+    Diagnostics = diagnostics_exists,
+    Status = status
+  )
+
+coverage_by_benchmark <- cell_inventory |>
+  dplyr::summarise(
+    Cells_complete = sum(status == "complete"),
+    Cells_partial = sum(status == "partial"),
+    Cells_missing = sum(status == "not yet available"),
+    Models_present = sum(models_present),
+    Models_expected = sum(models_expected),
+    .by = benchmark
+  ) |>
+  dplyr::rename(Benchmark = benchmark)
+
+show_cell <- function(folder, dataset, normalization) {
+  all_results |>
+    dplyr::filter(
+      .data$folder == .env$folder,
+      .data$Dataset == .env$dataset,
+      .data$Normalization == .env$normalization
+    ) |>
+    dplyr::select(
+      Package, N, TPR_raw_p05, PPV_raw_p05,
+      TPR_FDR_05, PPV_FDR_05
+    ) |>
+    dplyr::rename(
+      TPR_raw_p = TPR_raw_p05,
+      PPV_raw_p = PPV_raw_p05,
+      TPR_FDR = TPR_FDR_05,
+      PPV_FDR = PPV_FDR_05
+    )
+}
+
+bind_named_cells <- function(folder, dataset, normalizations) {
+  dplyr::bind_rows(lapply(normalizations, function(norm) {
+    show_cell(folder, dataset, norm) |>
+      dplyr::mutate(Normalization = norm, .before = 1)
+  }))
+}
+
+collect_model_pvalues <- function(folder, dataset, normalization, truth_key) {
+  truth <- truth_sets[[truth_key]]
+  rows <- lapply(packages, function(pkg) {
+    f <- model_path(folder, dataset, normalization, pkg)
+    model <- safe_read_csv(f)
+    if (is.null(model) || !"pvalue" %in% names(model)) {
+      return(NULL)
+    }
+    if ("Label" %in% names(model)) {
+      model$Label <- NULL
+    }
+    model <- merge(model, truth, by = "Protein")
+    model$Package <- pkg
+    model[, c("Protein", "Package", "Label", "pvalue")]
+  })
+  dplyr::bind_rows(rows) |>
+    dplyr::filter(is.finite(.data$pvalue))
+}
+
+plot_pvalue_histogram <- function(model_df, title) {
+  ggplot2::ggplot(model_df, ggplot2::aes(x = pvalue)) +
+    ggplot2::geom_histogram(
+      binwidth = 0.025,
+      boundary = 0,
+      fill = "#3b6fb6",
+      colour = "white"
+    ) +
+    ggplot2::geom_vline(xintercept = 0.05, linetype = 2, colour = "#b22222") +
+    ggplot2::facet_wrap(~ Package, scales = "free_y") +
+    ggplot2::coord_cartesian(xlim = c(0, 1)) +
+    ggplot2::labs(
+      title = title,
+      x = "p-value",
+      y = "count"
+    ) +
+    ggplot2::theme_bw(base_size = 10)
+}
+
+best_available <- all_results |>
+  dplyr::filter(Model == "present", !is.na(TPR_FDR_05), !is.na(PPV_FDR_05)) |>
+  dplyr::arrange(
+    Benchmark, Dataset, Normalization,
+    dplyr::desc(TPR_FDR_05), dplyr::desc(PPV_FDR_05)
+  ) |>
+  dplyr::summarise(
+    Leading_method = dplyr::first(Package),
+    TPR_FDR_05 = dplyr::first(TPR_FDR_05),
+    PPV_FDR_05 = dplyr::first(PPV_FDR_05),
+    .by = c(Benchmark, Dataset, Normalization)
+  ) |>
+  dplyr::arrange(Benchmark, Dataset, Normalization)
+
+completed_cell_count <- sum(cell_inventory$status == "complete")
+partial_cell_count <- sum(cell_inventory$status == "partial")
+missing_cell_count <- sum(cell_inventory$status == "not yet available")
+total_cell_count <- nrow(cell_inventory)
+present_model_count <- sum(model_inventory$model_exists)
+total_model_count <- nrow(model_inventory)
+
+summarize_report_for_review <- function(report_path, annotation_path) {
+  report <- data.table::fread(
+    report_path,
+    sep = "\t",
+    select = c("R.FileName", "PG.ProteinGroups", "EG.PrecursorId", "FG.Quantity")
+  )
+  report <- report[
+    nzchar(PG.ProteinGroups) & is.finite(FG.Quantity) & FG.Quantity > 0
+  ]
+  report <- unique(report, by = c("R.FileName", "PG.ProteinGroups", "EG.PrecursorId"))
+  summary <- report[
+    ,
+    .(LogIntensity = mean(log2(FG.Quantity), na.rm = TRUE)),
+    by = .(R.FileName, Protein = PG.ProteinGroups)
+  ]
+  annotation <- data.table::fread(annotation_path)
+  annotation <- annotation[, .(R.FileName, Condition)]
+  merge(summary, annotation, by = "R.FileName", all.x = TRUE)
+}
+
+variance_stats_for_review <- function(report_path, annotation_path, truth) {
+  summary <- summarize_report_for_review(report_path, annotation_path)
+  truth <- data.table::as.data.table(truth)[, .(Protein, Label)]
+  summary <- merge(summary, truth, by = "Protein")
+  conditions <- sort(unique(summary$Condition))
+  if (length(conditions) < 2) {
+    return(data.table::data.table())
+  }
+  summary <- summary[Condition %in% conditions[1:2]]
+  stats <- summary[
+    ,
+    .(
+      mean_log = mean(LogIntensity, na.rm = TRUE),
+      sd_log = stats::sd(LogIntensity, na.rm = TRUE),
+      n = .N
+    ),
+    by = .(Protein, Label, Condition)
+  ]
+  wide <- data.table::dcast(
+    stats,
+    Protein + Label ~ Condition,
+    value.var = c("mean_log", "sd_log", "n")
+  )
+  c1 <- conditions[[1]]
+  c2 <- conditions[[2]]
+  wide[
+    ,
+    mean_diff := get(paste0("mean_log_", c1)) - get(paste0("mean_log_", c2))
+  ]
+  wide[
+    ,
+    mean_intensity := 0.5 * (get(paste0("mean_log_", c1)) + get(paste0("mean_log_", c2)))
+  ]
+  wide[
+    ,
+    sd_pool := sqrt(
+      ((get(paste0("n_", c1)) - 1) * get(paste0("sd_log_", c1))^2 +
+         (get(paste0("n_", c2)) - 1) * get(paste0("sd_log_", c2))^2) /
+        pmax(get(paste0("n_", c1)) + get(paste0("n_", c2)) - 2, 1)
+    )
+  ]
+  wide[is.finite(mean_diff) & is.finite(sd_pool)]
+}
+
+condition_sd_stats_for_review <- function(report_path, annotation_path, truth) {
+  summary <- summarize_report_for_review(report_path, annotation_path)
+  truth <- data.table::as.data.table(truth)[, .(Protein, Label)]
+  summary <- merge(summary, truth, by = "Protein")
+  conditions <- sort(unique(summary$Condition))
+  if (length(conditions) < 2) {
+    return(data.table::data.table())
+  }
+  summary <- summary[Condition %in% conditions[1:2]]
+  out <- summary[
+    ,
+    .(
+      mean_log = mean(LogIntensity, na.rm = TRUE),
+      sd_log = stats::sd(LogIntensity, na.rm = TRUE),
+      n = .N
+    ),
+    by = .(Protein, Label, Condition)
+  ]
+  out[is.finite(sd_log) & n >= 2]
+}
+
+sample_swap_before_after_sd <- function(before_report_path, before_annotation_path,
+                                        after_report_path, after_annotation_path,
+                                        truth) {
+  before <- variance_stats_for_review(before_report_path, before_annotation_path, truth)
+  before$state <- "before swap"
+  after <- variance_stats_for_review(after_report_path, after_annotation_path, truth)
+  after$state <- "after swap"
+  out <- data.table::rbindlist(list(before, after), use.names = TRUE, fill = TRUE)
+  out$state <- factor(out$state, levels = c("before swap", "after swap"))
+  out$Label <- factor(out$Label, levels = c("Negative", "Positive"))
+  out
+}
+
+plot_sample_swap_sd <- function(stats) {
+  ggplot2::ggplot(stats, ggplot2::aes(x = sd_pool, fill = Label)) +
+    ggplot2::geom_density(alpha = 0.65, colour = "black", linewidth = 0.45) +
+    ggplot2::facet_wrap(~ state, nrow = 1) +
+    ggplot2::scale_fill_manual(
+      values = c(Negative = "#9f9f9f", Positive = "#74b96e"),
+      breaks = c("Negative", "Positive")
+    ) +
+    ggplot2::labs(
+      title = "Pooled within-condition SD",
+      x = "pooled sd(log2 intensity)",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      legend.position = "top",
+      legend.key.size = grid::unit(0.7, "cm"),
+      panel.grid.minor = ggplot2::element_line(colour = "grey92"),
+      panel.grid.major = ggplot2::element_line(colour = "grey88"),
+      strip.text = ggplot2::element_text(size = 11),
+      plot.title = ggplot2::element_text(size = 15)
+    )
+}
+
+plot_sample_swap_mean_variance <- function(stats) {
+  stats <- stats[stats$state == "after swap" & is.finite(stats$mean_intensity), ]
+  stats$Label <- factor(stats$Label, levels = c("Negative", "Positive"))
+  ggplot2::ggplot(
+    stats,
+    ggplot2::aes(x = mean_intensity, y = sd_pool, colour = Label)
+  ) +
+    ggplot2::geom_point(alpha = 0.45, size = 0.8) +
+    ggplot2::geom_smooth(se = FALSE, method = "loess", linewidth = 1.1) +
+    ggplot2::scale_colour_manual(
+      values = c(Negative = "#6f6f6f", Positive = "#1f9a2b"),
+      breaks = c("Negative", "Positive")
+    ) +
+    ggplot2::labs(
+      title = "Mean-variance relationship after swap",
+      subtitle = "limma's eBayes assumes a single trend; the truth here is bimodal",
+      x = "mean log2 intensity",
+      y = "pooled within-condition SD",
+      colour = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 12) +
+    ggplot2::theme(
+      legend.position = "top",
+      panel.grid.minor = ggplot2::element_line(colour = "grey92"),
+      panel.grid.major = ggplot2::element_line(colour = "grey88"),
+      plot.title = ggplot2::element_text(size = 15)
+    )
+}
+
+swap_effect_and_sd <- function(rda_path, truth_df) {
+  if (!file.exists(rda_path)) {
+    return(list(effect = NULL, sd = NULL, mv = NULL))
+  }
+  e <- new.env()
+  load(rda_path, envir = e)
+  obj <- get(ls(e)[1], envir = e)
+  pld <- data.table::as.data.table(obj$ProteinLevelData)
+  truth_dt <- data.table::as.data.table(truth_df)
+  truth_dt[, Protein := as.character(Protein)]
+  pld[, Protein := as.character(Protein)]
+  pld[, class := truth_dt[match(pld$Protein, Protein), Label]]
+  pld <- pld[!is.na(class) & is.finite(LogIntensities)]
+
+  stats <- pld[
+    ,
+    .(
+      mean_log = mean(LogIntensities, na.rm = TRUE),
+      sd_log = stats::sd(LogIntensities, na.rm = TRUE),
+      n = .N
+    ),
+    by = .(Protein, GROUP, class)
+  ]
+  wide <- data.table::dcast(
+    stats,
+    Protein + class ~ GROUP,
+    value.var = c("mean_log", "sd_log", "n")
+  )
+  wide[, mean_diff := mean_log_Condition1 - mean_log_Condition2]
+  wide[
+    ,
+    sd_pool := sqrt(
+      ((n_Condition1 - 1) * sd_log_Condition1^2 +
+         (n_Condition2 - 1) * sd_log_Condition2^2) /
+        pmax(n_Condition1 + n_Condition2 - 2, 1)
+    )
+  ]
+  wide[, mean_intensity := 0.5 * (mean_log_Condition1 + mean_log_Condition2)]
+
+  pal <- c(Positive = "#2ca02c", Negative = "#7f7f7f")
+  p_eff <- ggplot2::ggplot(
+    wide[is.finite(mean_diff)],
+    ggplot2::aes(x = mean_diff, fill = class)
+  ) +
+    ggplot2::geom_density(alpha = 0.55) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "grey40") +
+    ggplot2::scale_fill_manual(values = pal) +
+    ggplot2::labs(
+      title = "Per-protein effect size",
+      x = "log2(Condition1) - log2(Condition2)",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "top")
+
+  p_sd <- ggplot2::ggplot(
+    wide[is.finite(sd_pool)],
+    ggplot2::aes(x = sd_pool, fill = class)
+  ) +
+    ggplot2::geom_density(alpha = 0.55) +
+    ggplot2::scale_fill_manual(values = pal) +
+    ggplot2::labs(
+      title = "Pooled within-condition SD",
+      x = "pooled sd(log2 intensity)",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "top")
+
+  p_mv <- ggplot2::ggplot(
+    wide[is.finite(sd_pool)],
+    ggplot2::aes(x = mean_intensity, y = sd_pool, colour = class)
+  ) +
+    ggplot2::geom_point(alpha = 0.4, size = 0.7) +
+    ggplot2::geom_smooth(se = FALSE, method = "loess") +
+    ggplot2::scale_colour_manual(values = pal) +
+    ggplot2::labs(
+      title = "Mean-variance relationship",
+      subtitle = "eBayes assumes a single trend; the truth here is bimodal",
+      x = "mean log2 intensity",
+      y = "pooled within-condition SD",
+      colour = NULL
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "top")
+
+  list(effect = p_eff, sd = p_sd, mv = p_mv)
+}
+
+plot_effect_variance <- function(stats, condition_sd, title_prefix) {
+  effect_plot <- ggplot2::ggplot(
+    stats,
+    ggplot2::aes(x = mean_diff, fill = Label)
+  ) +
+    ggplot2::geom_density(alpha = 0.55) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "grey40") +
+    ggplot2::scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+    ggplot2::labs(
+      title = paste(title_prefix, "effect size"),
+      x = "mean log2 difference between conditions",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(legend.position = "top")
+
+  variance_plot <- ggplot2::ggplot(
+    condition_sd[is.finite(sd_log)],
+    ggplot2::aes(x = sd_log, fill = Label)
+  ) +
+    ggplot2::geom_density(alpha = 0.55) +
+    ggplot2::scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+    ggplot2::labs(
+      title = paste(title_prefix, "within-condition SD"),
+      x = "sd(log2 intensity) within one condition",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(legend.position = "top")
+
+  list(effect = effect_plot, variance = variance_plot)
+}
+
+authors_csf_sample_swap_stats <- function() {
+  annotation <- data.table::fread(q("CSF_Spectronaut/annotation.csv"))
+  swap_list <- data.table::fread(q("CSF_Spectronaut/CSF_protein_swap_list.csv"))
+
+  e <- new.env()
+  load(q("CSF_Spectronaut/good_data/log2/swap/MSstats/MSstats_summarized.rda"), envir = e)
+  prot <- data.table::as.data.table(e$base_msstats_summarized$ProteinLevelData)
+  prot[, Protein := as.character(Protein)]
+  prot[, Order := as.integer(sub(".*Seq", "", originalRUN))]
+
+  true_pos <- swap_list[Label == "Positive", Protein]
+  true_neg <- swap_list[Label == "Negative", Protein]
+  good_runs <- annotation[Label == "Good", R.FileName]
+
+  prot_before <- data.table::copy(prot)
+  prot_before[, state := "before swap"]
+
+  prot_after <- swap_condition_labels(prot, true_pos, true_neg) |>
+    data.table::as.data.table()
+  prot_after[, state := "after swap"]
+
+  prot_all <- data.table::rbindlist(
+    list(prot_before, prot_after),
+    use.names = TRUE,
+    fill = TRUE
+  )
+  prot_all <- prot_all[originalRUN %in% good_runs]
+  prot_all[, class := data.table::fifelse(
+    Protein %in% true_pos,
+    "Positive",
+    data.table::fifelse(Protein %in% true_neg, "Negative", NA_character_)
+  )]
+  prot_all <- prot_all[!is.na(class) & is.finite(LogIntensities)]
+  prot_all[, state := factor(state, levels = c("before swap", "after swap"))]
+  prot_all[, class := factor(class, levels = c("Negative", "Positive"))]
+
+  stats <- prot_all[
+    ,
+    .(
+      mean_log = mean(LogIntensities, na.rm = TRUE),
+      sd_log = stats::sd(LogIntensities, na.rm = TRUE),
+      n = .N
+    ),
+    by = .(Protein, GROUP, state, class)
+  ]
+
+  wide <- data.table::dcast(
+    stats,
+    Protein + state + class ~ GROUP,
+    value.var = c("mean_log", "sd_log", "n")
+  )
+  wide[, mean_diff := mean_log_Condition1 - mean_log_Condition2]
+  wide[
+    ,
+    sd_pool := sqrt(
+      ((n_Condition1 - 1) * sd_log_Condition1^2 +
+         (n_Condition2 - 1) * sd_log_Condition2^2) /
+        pmax(n_Condition1 + n_Condition2 - 2, 1)
+    )
+  ]
+  wide[, mean_intensity := 0.5 * (mean_log_Condition1 + mean_log_Condition2)]
+  condition_sd <- stats[is.finite(sd_log) & n >= 2]
+  list(wide = wide, condition_sd = condition_sd)
+}
+
+plot_csf_sample_swap_effect <- function(wide) {
+  ggplot2::ggplot(
+    wide[is.finite(mean_diff)],
+    ggplot2::aes(x = mean_diff, fill = class)
+  ) +
+    ggplot2::geom_density(alpha = 0.55) +
+    ggplot2::geom_vline(xintercept = 0, linetype = 2, colour = "grey40") +
+    ggplot2::facet_wrap(~ state) +
+    ggplot2::scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+    ggplot2::labs(
+      title = "Per-protein effect size",
+      x = "log2 fold-change (Condition1 - Condition2)",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(legend.position = "top")
+}
+
+plot_csf_sample_swap_sd <- function(condition_sd) {
+  ggplot2::ggplot(
+    condition_sd[is.finite(sd_log)],
+    ggplot2::aes(x = sd_log, fill = class)
+  ) +
+    ggplot2::geom_density(alpha = 0.55, colour = "black", linewidth = 0.35) +
+    ggplot2::facet_wrap(~ state) +
+    ggplot2::scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+    ggplot2::labs(
+      title = "Within-condition SD",
+      x = "sd(log2 intensity) within one condition",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(legend.position = "top")
+}
+
+plot_csf_sample_swap_mean_variance <- function(condition_sd) {
+  mv <- condition_sd[is.finite(mean_log) & is.finite(sd_log) & state == "after swap"]
+  ggplot2::ggplot(
+    mv,
+    ggplot2::aes(x = mean_log, y = sd_log, colour = class)
+  ) +
+    ggplot2::geom_point(alpha = 0.4, size = 0.7) +
+    ggplot2::geom_smooth(se = FALSE, method = "loess") +
+    ggplot2::scale_colour_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+    ggplot2::labs(
+      title = "Mean-variance relationship after swap",
+      subtitle = "The authors' benchmark creates separate H1 and H0 variance behaviour",
+      x = "mean log2 intensity",
+      y = "within-condition SD",
+      colour = NULL
+    ) +
+    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme(legend.position = "top")
+}
+```
+
+# Review Letter
+
+Dear authors,
+
+Thank you for making the MSstats+ benchmark scripts and reanalysis material
+available. I have focused this reanalysis on the quantitative benchmark because
+Table 1 is central to the manuscript's claim that MSstats+ improves
+differential-abundance analysis relative to established workflows.
+
+My main concern is the benchmark construction rather than the implementation of
+MSstats+ itself. The CSF benchmark starts from a dilution experiment where the
+Neat versus 1:2 comparison should make almost every quantified protein
+differentially abundant. There is therefore no natural null class. The benchmark
+creates a null by swapping run labels for most proteins and leaving a minority
+unchanged as Positives. This gives a useful synthetic benchmark, but it also
+links the ground-truth label to the within-condition variance: Positives remain
+relatively clean dilution comparisons, while Negatives become mixtures of
+dilution levels inside each condition.
+
+This matters for methods that use empirical-Bayes or related variance
+moderation. In the sample-swap benchmark, the shared variance prior is estimated
+from a deliberately imbalanced mixture dominated by high-variance Negatives.
+The low-variance Positive class is the minority, so moderation can pull the
+Positive variances upward and reduce sensitivity. I therefore do not think the
+current Table 1, by itself, supports a broad conclusion that MSstats+ generally
+outperforms established normalized and variance-moderated workflows. It supports
+a narrower conclusion: MSstats+ performs well on this sample-swap construction.
+The manuscript should separate those claims.
+
+This review reports two operating points, both at threshold 0.05: raw p-value
+and adjusted p-value. TPR is the fraction of truth-set Positives detected. PPV
+is one minus the false-positive fraction among called proteins. Missing model
+outputs appear as missing values in the result tables.
+
+At render time, `r completed_cell_count` of `r total_cell_count` expected cell
+blocks were complete, `r partial_cell_count` were partially populated, and
+`r missing_cell_count` had no model outputs yet. The incomplete cells are
+reported explicitly below and should not be used for final method rankings.
+
+# Benchmark Data And Truth Sets
+
+The authors' CSF Spectronaut benchmark uses a 1,820-protein truth list: 182
+Positives and 1,638 Negatives. In the re-run workflow, I also created two
+checks that use the same underlying CSF Spectronaut report but different
+synthetic truth definitions.
+
+First, the rebuilt sample-swap benchmark applies the sample-swap idea in a
+single generated report rather than inside individual modelling scripts.
+Second, the protein-swap benchmark swaps precursor intensities between matched
+protein pairs instead of swapping sample labels. Both rebuilt benchmarks now use
+the same conservative universe: proteins in non-blank runs with at least two
+unique precursors. The original report contains 3,041 non-blank proteins with at
+least one precursor; applying `n_precursors >= 2` leaves 2,244 proteins. The
+excluded 797 proteins are single-precursor proteins. Keeping this filter is a
+design choice: single-precursor proteins are less stable as benchmark Negatives,
+and they cannot participate in the matched protein-pair construction.
+
+The rebuilt sample-swap truth list therefore contains 2,244 proteins: 224
+Positives and 2,020 Negatives. The protein-swap truth list contains the same
+2,244-protein universe, with 224 Positives arranged as 112 matched protein
+pairs and 2,020 Negatives.
+
+```{r truth-summary}
+knitr::kable(
+  truth_summary,
+  caption = "Truth sets used by this review.",
+  row.names = FALSE
+)
+```
+
+# Authors' CSF Spectronaut Benchmark
+
+The authors' CSF Spectronaut analysis has both expected log2 cells available:
+`all_data` and `good_data`. These are the closest reproduction of the
+manuscript-style CSF sample-swap benchmark in this report.
+
+The `good_data` subset is especially important because it restricts the
+comparison to the cleaner Neat and 1:2 runs. If the benchmark were a neutral
+standard differential-abundance problem, the non-MSstats workflows should behave
+similarly across clean benchmark constructions. Instead, the sample-swap
+construction remains important because the Negative class has been made by
+mixing dilution levels inside condition.
+
+## CSF all_data, log2
+
+```{r csf-all-data-log2}
+knitr::kable(
+  show_cell("CSF_Spectronaut", "all_data", "log2"),
+  caption = "Authors' CSF sample-swap benchmark: all_data/log2."
+)
+```
+
+Table 2 is the manuscript Table 1 replication check for the CSF Spectronaut
+sample-swap benchmark. The manuscript-comparable columns are the raw p-value
+columns (`TPR_raw_p` and `PPV_raw_p`), evaluated at threshold 0.05 because that
+is the operating point used in the original benchmark summary. At this
+operating point, the rerun agrees with the manuscript for the reproduced
+authors' pipeline rows: MSstats, MaxLFQ+limma, DEqMS, and limpa. MSstats+ is
+also very close to the manuscript value, with only a small numerical difference
+in this current render.
+
+The `msqrob2` row should not be interpreted as a failed replication. In this
+rerun we deliberately use a different, faster `msqrob2` pipeline than the one
+used for the manuscript/original archive. A difference in the `msqrob2` TPR is
+therefore expected and is not evidence that the CSF sample-swap replication
+failed. The FDR columns are additional review diagnostics and are not the
+manuscript Table 1 operating point.
+
+The p-value distributions for Table 2 are shown below. The dashed vertical line
+marks the 0.05 threshold used for the raw p-value columns.
+
+```{r pvalue-hist-csf-all, fig.cap="P-value distributions for Table 2: authors' CSF Spectronaut all_data/log2 benchmark. The dashed red line marks p = 0.05.", fig.width=9, fig.height=6}
+collect_model_pvalues(
+  "CSF_Spectronaut",
+  "all_data",
+  "log2",
+  "csf"
+) |>
+  plot_pvalue_histogram("CSF Spectronaut all_data/log2 p-value distributions")
+```
+
+## CSF good_data, log2
+
+```{r csf-good-data-log2}
+knitr::kable(
+  show_cell("CSF_Spectronaut", "good_data", "log2"),
+  caption = "Authors' CSF sample-swap benchmark: good_data/log2."
+)
+```
+
+# Per-protein Effect Size And Within-condition Variance
+
+The sample-swap operation solves one problem and creates another. It solves the
+absence of a null class by exchanging Negative-protein measurements between
+paired Condition1 and Condition2 runs. At the condition level, each Negative
+protein then has approximately the same mean in both groups. The Positive
+proteins are not swapped and keep the original dilution effect.
+
+The variance-shrinkage story sits here. Under H0, Negative proteins should have
+within-condition variance approximately equal to Positive proteins because both
+classes are technical dilutions of the same material. The swap induces a
+bimodal variance distribution tied to the ground-truth label:
+
+- **Positive proteins** retain their natural per-run variance because no runs
+  were rewritten for them.
+- **Negative proteins** become 50/50 mixtures of Neat and 1:2 runs inside each
+  condition, so their within-condition variance grows by the mixture term
+  `0.5 * 0.5 * 1^2` in log2 units.
+
+The following figures are generated from the authors' CSF Spectronaut benchmark
+implementation, not from our rebuilt explicit sample-swap file. They use the
+MSstats protein-level summary object
+`CSF_Spectronaut/good_data/log2/swap/MSstats/MSstats_summarized.rda`; the plotted
+variable is `LogIntensities`, already on the log2 scale. The after-swap state is
+created in memory with the same `swap_condition_labels()` operation used by the
+authors' MSstats benchmark code. This is the correct object for criticizing the
+manuscript benchmark.
+
+```{r authors-csf-sample-swap-stats, include=FALSE}
+authors_csf <- authors_csf_sample_swap_stats()
+authors_csf_wide <- authors_csf$wide
+authors_csf_condition_sd <- authors_csf$condition_sd
+```
+
+```{r sample-swap-effect, fig.cap="Authors' CSF sample-swap benchmark, good_data/log2. Per-protein effect size is the mean MSstats protein-level LogIntensities in Condition1 minus Condition2. Before the swap, both classes carry the dilution effect; after the authors' in-memory sample swap, Negative proteins are centered near zero while Positive proteins retain the dilution effect.", fig.width=8, fig.height=4}
+plot_csf_sample_swap_effect(authors_csf_wide)
+```
+
+```{r sample-swap-sd, fig.cap="Authors' CSF sample-swap benchmark, good_data/log2. For each protein and condition, SD is computed across runs from the same MSstats protein-level LogIntensities. The density shows these condition-specific SD values by class. After the swap, the Negative class shifts to higher within-condition SD because each condition contains a mixture of Neat and 1:2 measurements for Negative proteins; Positive proteins are not swapped.", fig.width=8, fig.height=4}
+plot_csf_sample_swap_sd(authors_csf_condition_sd)
+```
+
+```{r sample-swap-mv, fig.cap="Authors' CSF sample-swap benchmark, good_data/log2. Each point is one protein within one condition after the in-memory sample swap. The x-axis is the condition-specific mean MSstats protein-level LogIntensity and the y-axis is the condition-specific SD across runs. No pooled SD is used. The two trends show the moderation problem directly: empirical-Bayes methods estimate one shared prior trend from two label-dependent variance regimes.", fig.width=8, fig.height=5}
+plot_csf_sample_swap_mean_variance(authors_csf_condition_sd)
+```
+
+The mixture-induced variance asymmetry is what drives moderated methods
+(limma, DEqMS, msqrob2, limpa) to shrink **Positive** proteins more than
+Negative ones. The empirical-Bayes prior is dominated by Negatives and sits much
+farther above the Positive variance than below the Negative variance.
+Sensitivity is therefore reduced more than specificity is inflated.
+
+**Sample-size dependence.** The strength of the moderation prior depends on
+degrees of freedom. With many replicates, the per-protein variance estimate
+dominates the prior; with few replicates, the prior dominates. A 4-vs-4 design
+therefore puts the prior at much higher relative weight than a larger balanced
+design, so `small_good_data` exaggerates the bias.
+
+# Rebuilt Sample-Swap Results
+
+The rebuilt sample-swap benchmark uses the same general sample-swap idea as the
+authors' CSF benchmark, but makes the swapped report explicit on disk and
+applies the same `n_precursors >= 2` universe used by protein-swap. This gives
+224 Positives and 2,020 Negatives.
+
+Here I show only the log2 `good_data` and `small_good_data` cells. The point of
+this comparison is sample size.
+
+## Sample-swap good_data
+
+```{r sample-swap-good-data}
+show_cell(
+  "CSF_Spectronaut_sample_swap",
+  "good_data",
+  "log2"
+) |>
+  knitr::kable(caption = "Rebuilt sample-swap benchmark: good_data.")
+```
+
+## Sample-swap small_good_data
+
+```{r sample-swap-small-good-data}
+show_cell(
+  "CSF_Spectronaut_sample_swap",
+  "small_good_data",
+  "log2"
+) |>
+  knitr::kable(caption = "Rebuilt sample-swap benchmark: small_good_data.")
+```
+
+The expected sample-size effect is visible in Tables 4 and 5. With fewer
+samples, per-protein variance estimates carry less information and the
+model/prior assumptions have greater influence. Under the sample-swap
+construction, where the null and positive classes have different variance
+regimes, this primarily reduces sensitivity for Positive proteins rather than
+creating many extra false positives.
+
+The clearest comparison is the adjusted-p-value operating point. From
+`good_data` to `small_good_data`, FDR TPR drops from 0.899 to 0.550 for
+MSstats, from 0.899 to 0.500 for MSstats+, from 0.890 to 0.009 for
+MaxLFQ+limma, from 0.844 to 0.482 for prolfqua, and from 0.904 to 0.005 for
+limpa. PPV remains high for most of these rows. Thus the smaller design mainly
+makes the workflows more conservative for the Positive class, and the effect is
+particularly severe for variance-moderated workflows such as MaxLFQ+limma and
+limpa.
+
+The `msqrob2` rows in Tables 4 and 5 are outliers and should not be read as a
+general property of the benchmark. In these specific outputs, the exported
+`msqrob2` log fold changes collapse toward zero for both classes: the median
+absolute Positive log fold change is about 0.11 in `good_data` and 0.16 in
+`small_good_data`, whereas the other methods keep the expected Positive effect
+close to one log2 unit. The result is a nearly class-independent p-value
+distribution: many Negative proteins cross the raw p-value threshold, while
+most Positive proteins do not. This points to an `msqrob2` pipeline/output
+issue for the explicit sample-swap cells, not to a biological interpretation of
+the sample-swap design.
+
+```{r pvalue-hist-sample-swap-small-good, fig.cap="P-value distributions for rebuilt sample-swap small_good_data/log2. The dashed red line marks p = 0.05. The msqrob2 panel explains the outlying table row: its p-values are not clearly separated by the expected Positive effect.", fig.width=9, fig.height=6}
+collect_model_pvalues(
+  "CSF_Spectronaut_sample_swap",
+  "small_good_data",
+  "log2",
+  "sample_swap"
+) |>
+  plot_pvalue_histogram("Rebuilt sample-swap small_good_data/log2 p-value distributions")
+```
+
+# Protein-Swap Benchmark And Variance Check
+
+The protein-swap benchmark tests a different construction: rather than swapping
+sample labels, it swaps precursor intensities between matched protein pairs.
+This design is intended to reduce dependence on the variance asymmetry induced
+by sample-label swapping in a dilution series.
+
+The protein-swap truth list is generated after filtering to proteins with at
+least two precursors. This gives a 2,244-protein universe with 224 Positives
+organized as 112 matched protein pairs and 2,020 Negatives. The older 3,041-row
+truth-list expectation included single-precursor proteins. I treat the current
+2,244-row list as the cleaner benchmark definition because single-precursor
+proteins cannot participate in the paired swap and are less reliable as
+benchmark Negatives.
+
+The protein-swap truth files are present, and several model grids are already
+available. However, this benchmark is not yet complete in the current render.
+The completed cells can be inspected now, but final interpretation should wait
+until the remaining `good_data`, `small`, and `small_good_data` cells finish.
+
+The same diagnostic is shown below for the protein-swap `good_data` report.
+Here the data are read directly from
+`CSF_Spectronaut_protein_swap/good_data/Report.tsv`: precursor-level
+`FG.Quantity` values are log2-transformed, deduplicated at
+`(run, protein, precursor)`, and averaged to one protein/run value before fold
+changes and within-condition SDs are computed. No MSstats RDA object is used
+for this protein-swap diagnostic. The density plot shows condition-specific
+SDs, one value for each protein in each condition. The mean-variance plot below
+uses a pooled within-condition SD only because that display requires one y-value
+per protein.
+
+The important point is directional. In a real treatment-control comparison,
+regulated proteins can be more variable because they are the proteins that
+respond to treatment, and that response can add biological heterogeneity on top
+of technical variation. Therefore it is not suspicious if the Positive density
+is broader or shifted to higher within-condition SD than the Negative density in the
+protein-swap benchmark. What is suspicious in the authors' sample-swap
+benchmark is the opposite construction: the null/Negative class is made more
+variable by mixing Neat and 1:2 samples inside each condition.
+
+```{r protein-swap-effect-variance, fig.cap="Explicit protein-swap benchmark, good_data. Intensities are direct report-derived protein/run summaries: log2 FG.Quantity values averaged from precursor to protein level within each run. Positives are matched protein-pair members; Negatives remain near the null. The SD density shows condition-specific within-condition SDs, not a pooled summary. The broader Positive SD distribution is compatible with regulated proteins being more heterogeneous than null proteins.", fig.width=10, fig.height=4}
+protein_swap_stats <- variance_stats_for_review(
+  q("CSF_Spectronaut_protein_swap/good_data/Report.tsv"),
+  q("CSF_Spectronaut_protein_swap/good_data/annotation.csv"),
+  truth_sets$protein_swap
+)
+protein_swap_condition_sd <- condition_sd_stats_for_review(
+  q("CSF_Spectronaut_protein_swap/good_data/Report.tsv"),
+  q("CSF_Spectronaut_protein_swap/good_data/annotation.csv"),
+  truth_sets$protein_swap
+)
+protein_swap_plots <- plot_effect_variance(
+  protein_swap_stats,
+  protein_swap_condition_sd,
+  "Protein-swap good_data"
+)
+protein_swap_plots$effect + protein_swap_plots$variance
+```
+
+```{r protein-swap-mean-variance, fig.cap="Explicit protein-swap benchmark, good_data. Each point is one protein summarized from the direct report-derived protein/run matrix. The y-axis is the pooled within-condition SD, used here only to place one variance summary per protein. Unlike the authors' sample-swap benchmark, the null/Negative class is not forced into a higher-variance dilution mixture.", fig.width=8, fig.height=5}
+protein_swap_mv <- protein_swap_stats[is.finite(protein_swap_stats$sd_pool), ]
+ggplot2::ggplot(
+  protein_swap_mv,
+  ggplot2::aes(x = mean_intensity, y = sd_pool, colour = Label)
+) +
+  ggplot2::geom_point(alpha = 0.4, size = 0.7) +
+  ggplot2::geom_smooth(se = FALSE, method = "loess") +
+  ggplot2::scale_colour_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  ggplot2::labs(
+    title = "Mean-variance relationship in CSF_Spectronaut_protein_swap",
+    subtitle = "Direct report-derived protein/run summaries from good_data",
+    x = "mean log2 intensity",
+    y = "pooled within-condition SD",
+    colour = NULL
+  ) +
+  ggplot2::theme_minimal(base_size = 11) +
+  ggplot2::theme(legend.position = "top")
+```
+
+## Protein-swap Dataset Composition
+
+The protein-swap dataset names refer to run subsets, not to different
+protein-truth definitions. The same conservative 2,244-protein truth universe
+is used throughout. What changes between `all_data`, `good_data`, `small`, and
+`small_good_data` is which CSF injections enter the modelling step.
+
+In the protein-swap benchmark, the Positive and Negative classes are defined by
+the protein-pair swap, not by the sample dilution. The table below describes
+the original run composition of each subset. `Condition1` and `Condition2` are
+the two model groups; `Good` and `Bad` are the sample-quality labels inherited
+from the original CSF annotation.
+
+- `all_data` contains the full available CSF design: the Good Neat and 1:2
+  runs plus the higher-dilution Bad runs.
+- `good_data` contains only Good Neat runs, so any differential signal comes
+  from the protein swap rather than from the dilution design.
+- `small` is a smaller mixed subset containing Good Neat/1:2 runs and a few Bad
+  higher-dilution runs.
+- `small_good_data` is the small Neat-only subset, four runs in each model
+  group.
+
+```{r protein-swap-dataset-composition}
+protein_swap_dataset_composition() |>
+  dplyr::mutate(
+    Dataset = as.character(Dataset),
+    Dilution = as.character(Dilution)
+  ) |>
+  dplyr::rename(
+    `Sample label` = Label,
+    `Group 1 / Condition1` = Condition1,
+    `Group 2 / Condition2` = Condition2
+  ) |>
+  knitr::kable(
+    caption = "Run composition of the CSF_Spectronaut_protein_swap dataset subsets."
+  )
+```
+
+## Protein-swap all_data, log2
+
+```{r protein-swap-all-data-log2}
+show_cell(
+  "CSF_Spectronaut_protein_swap",
+  "all_data",
+  "log2"
+) |>
+  knitr::kable(caption = "Protein-swap benchmark: all_data/log2.")
+```
+
+## Protein-swap all_data, median
+
+```{r protein-swap-all-data-median}
+show_cell(
+  "CSF_Spectronaut_protein_swap",
+  "all_data",
+  "median"
+) |>
+  knitr::kable(caption = "Protein-swap benchmark: all_data/median.")
+```
+
+## Protein-swap small, log2
+
+```{r protein-swap-small-log2}
+show_cell(
+  "CSF_Spectronaut_protein_swap",
+  "small",
+  "log2"
+) |>
+  knitr::kable(caption = "Protein-swap benchmark: small/log2.")
+```
+
+## Protein-swap small, median
+
+```{r protein-swap-small-median}
+show_cell(
+  "CSF_Spectronaut_protein_swap",
+  "small",
+  "median"
+) |>
+  knitr::kable(caption = "Protein-swap benchmark: small/median.")
+```
+
+## Interpretation Of The Protein-Swap Results
+
+The protein-swap results change the interpretation of the benchmark. In this
+construction, the null/Negative proteins are not made artificially more
+variable by mixing dilution levels inside a condition. Once that sample-swap
+variance asymmetry is removed, methods that use variance shrinkage or p-value
+moderation are no longer systematically disadvantaged. They are often
+comparable to, and in several cells better than, the MSstats+ row.
+
+For `all_data/log2`, MSstats+ has high raw-p sensitivity, but it is not the
+only strong method: MaxLFQ+limma, msqrob2, and prolfqua are close at the raw
+p-value threshold, and msqrob2 has the highest FDR sensitivity. For
+`all_data/median`, the moderated methods are even stronger: MaxLFQ+limma,
+msqrob2, and limpa have higher FDR TPR than MSstats+, while retaining high PPV.
+This is the opposite of the story suggested by the authors' CSF sample-swap
+benchmark, where moderation is penalized by the design.
+
+The smaller `small` subset should be read more carefully. With nominal `log2`
+normalization, all methods lose sensitivity because the sample size is small,
+but the `msqrob2` row is not a clean log2-only comparison: the current msqrob2
+pipeline applies additional median centering internally. I therefore do not use
+that row as evidence for a pure log2 advantage. With explicit `median`
+normalization, MaxLFQ+limma, msqrob2, prolfqua, and limpa all exceed MSstats+
+in raw-p TPR, and the moderated methods also dominate the non-zero FDR
+detections. This supports the central point of the reanalysis: the apparent
+advantage of MSstats+ in the authors' sample-swap benchmark is not a general
+property of the modelling problem. It depends strongly on a benchmark
+construction that couples the ground-truth label to different variance regimes.
+
+# Points To Raise With The Authors
+
+The following points are intended as inputs for the article and accompanying
+materials in `manuscript_materials_second_submission`, not as private notes on
+this reanalysis.
+
+1. **Protein universe definition.** The manuscript-style CSF benchmark uses an
+   1,820-protein truth list. The rebuilt sample-swap and protein-swap workflows
+   use a stricter 2,244-protein universe after the `n_precursors >= 2` filter.
+   The manuscript should state the filtering rules for each benchmark and
+   justify why each universe is appropriate for comparing methods.
+2. **Thresholding convention.** The conclusions are sensitive to whether the
+   table is read at raw `p < 0.05` or adjusted `p < 0.05`. The manuscript should
+   make the thresholding convention explicit wherever benchmark tables are
+   interpreted.
+3. **Dependence on swap construction.** The sample-swap design creates
+   label-linked variance asymmetry in CSF. I view this as a firm benchmark-design
+   concern for interpreting Table 1, not merely as a minor implementation
+   detail. The authors should clarify whether MSstats+ is expected to improve
+   specifically under this sample-swap variance asymmetry, or more generally
+   across independent synthetic and biological benchmark constructions.
+4. **Separate benchmark creation from tool benchmarking.** The manuscript and
+   archive should separate the code that creates a benchmark dataset from the
+   code that benchmarks tools on that dataset. A benchmark should be written to
+   disk as an explicit report plus annotation/truth files, and all modelling
+   tools should then consume that fixed dataset. This makes the benchmark
+   auditable and prevents method-specific analysis code from depending on the
+   benchmark-generation code path. This is the structure used in the rebuilt
+   sample-swap and protein-swap analyses here.
+5. **Runtime reporting.** The manuscript should report timing information for
+   each tool and benchmark cell. In this reanalysis the observed runtimes differ
+   substantially between tools and between datasets; without timing information,
+   the reader cannot judge the practical cost of the reported performance.
+6. **Memory reporting.** The manuscript should also report memory usage or peak
+   memory ranges for each tool. Runtime alone is not sufficient for practical
+   reproducibility, especially for methods that fit many protein-level models or
+   require large intermediate objects.
+7. **Include prolfqua.** The benchmark should include `prolfqua` as an
+   additional contemporary modelling workflow. It is directly relevant to the
+   comparison because it provides an independent implementation path for
+   protein-level differential analysis and helps separate MSstats-specific
+   behaviour from more general properties of moderated and non-moderated
+   workflows.
+
+# Availability Of Computed Outputs
+
+The tables below document which outputs were available when the review was rendered. This is
+included so that missing cells are not misread as biological or methodological
+results.
+
+## Protein-Swap Incomplete Cells
+
+```{r protein-swap-incomplete-cells}
+cell_inventory |>
+  dplyr::filter(
+    folder == "CSF_Spectronaut_protein_swap",
+    status != "complete"
+  ) |>
+  dplyr::select(
+    Benchmark = benchmark,
+    Dataset = dataset,
+    Normalization = normalization,
+    Models_present = models_present,
+    Models_expected = models_expected,
+    Stamp = stamp_exists,
+    Status = status
+  ) |>
+  knitr::kable(caption = "Protein-swap cells that are incomplete in this render.")
+```
+
+```{r coverage-by-benchmark}
+knitr::kable(
+  coverage_by_benchmark,
+  caption = "Coverage by benchmark at render time."
+)
+```
+
+```{r model-coverage-plot}
+cell_inventory |>
+  dplyr::mutate(
+    Cell = paste(benchmark, dataset, normalization, sep = " / ")
+  ) |>
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = reorder(Cell, models_present),
+      y = models_present,
+      fill = status
+    )
+  ) +
+  ggplot2::geom_col() +
+  ggplot2::coord_flip() +
+  ggplot2::scale_y_continuous(
+    breaks = 0:length(packages),
+    limits = c(0, length(packages))
+  ) +
+  ggplot2::labs(
+    x = NULL,
+    y = "Model CSVs present out of 7",
+    fill = "Cell status"
+  ) +
+  ggplot2::theme_minimal(base_size = 11)
+```
+
+# Appendix: Output Inventory
+
+The detailed inventory below is included for reproducibility. It is not a
+biological result table; it documents what was available when the report was
+rendered.
+
+```{r cell-inventory}
+knitr::kable(
+  compact_cell_inventory,
+  caption = "Expected cell blocks and outputs available for this review render."
+)
+```
+
+# Disabled Until Remaining Outputs Finish
+
+The chunks below preserve the intended next sections but are deliberately
+disabled for this review render. They should be re-enabled after the missing
+model grids and diagnostics finish.
+
+```{r disabled-diagnostics, eval=FALSE}
+# Diagnostics are incomplete at the time review2.qmd was created.
+# Re-enable once diagnostics.html files exist for the relevant cells:
+# find CSF_Spectronaut CSF_Spectronaut_protein_swap \
+#   CSF_Spectronaut_sample_swap -name diagnostics.html
+```
+
+```{r disabled-final-figures, eval=FALSE}
+# Re-enable when protein-swap good_data/small_good_data final outputs are
+# complete. Candidate plotting helpers live in
+# R/figures.R, and the fuller narrative is in vignettes/review.qmd.
+```
+
+```{r disabled-rendered-review-comparison, eval=FALSE}
+# Re-enable after the main review narrative is finalized and the strict
+# Makefile review target is expected to pass.
+```

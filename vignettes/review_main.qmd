@@ -1,0 +1,98 @@
+---
+title: "Main Review: MSstats+ Benchmark Interpretation"
+subtitle: "Reviewer summary of the sample-swap benchmark concern"
+author: "Witold Wolski"
+date: today
+format:
+  pdf:
+    toc: false
+    number-sections: false
+  html:
+    self-contained: true
+    toc: false
+    number-sections: false
+---
+
+Dear authors,
+
+Thank you for making the MSstats+ benchmark scripts and reanalysis material
+available. I focused my review on the quantitative benchmark because Table 1 is
+central to the manuscript's claim that MSstats+ improves differential-abundance
+analysis relative to established workflows.
+
+My concern is not that MSstats+ is implemented incorrectly. My concern is that
+the K562/CSF sample-swap benchmark induces a label-dependent variance structure.
+The benchmark starts from a dilution experiment in which essentially all
+quantified proteins are differentially abundant. The manuscript then creates a
+synthetic null class by reassigning condition labels for most proteins while
+leaving a minority unchanged as Positives. This is a useful stress-test
+construction for quality-aware workflows, but it is not a neutral benchmark for
+general differential-abundance modelling.
+
+In the CSF benchmark, the synthetic null proteins are constructed as
+within-condition mixtures of dilution levels, whereas the Positive proteins
+retain the original dilution comparison. Thus the ground-truth label becomes
+coupled to within-condition variance: Positives remain relatively clean
+dilution comparisons, while Negatives can have inflated within-condition
+variance because each condition contains a mixture of dilution levels for those
+proteins.
+
+This matters because several comparator workflows use empirical-Bayes or
+related variance moderation. A shared variance prior estimated from a
+class-imbalanced mixture can be influenced by the high-variance Negative class
+and can reduce sensitivity for the lower-variance Positive class. In this
+setting, Table 1 partly measures how each method responds to the
+sample-swap-induced variance asymmetry. Therefore Table 1 supports a narrower
+conclusion than currently stated: MSstats+ performs well on this specific
+sample-swap benchmark with induced anomalous runs, but the table alone does not
+establish general superiority over established variance-moderated workflows in
+standard differential-abundance settings.
+
+The p-value distributions provide an additional diagnostic warning. In a
+well-calibrated benchmark, p-values for true null proteins should be
+approximately uniform. In the CSF all_data benchmark, the distributions are
+strongly non-uniform across methods, with substantial mass near one and
+method-dependent spikes near zero. This pattern is not by itself a proof of the
+mechanism, but it is anomalous for a clean null and motivates inspecting the
+sample-swap construction and its induced H0/H1 variance structure.
+
+I recommend that the manuscript explicitly separate these claims. The
+K562/CSF benchmark can be presented as a stress test for longitudinal quality
+degradation and run-level anomalies. Broader claims about differential-abundance
+method performance should either be qualified or supported by additional
+sensitivity analyses where truth labels are not coupled to within-condition
+variance, and where comparator methods can be run with appropriate
+normalization and best-practice workflows without changing the estimand created
+by the benchmark.
+
+I also recommend that the main text clearly distinguish the nominal-p-value and
+adjusted-p-value operating points. I understand that nominal p-values can be
+useful for inspecting signal-to-noise properties, and the manuscript states that
+adjusted results are provided separately. However, Table 1 is prominent and is
+easy to read as a discovery-performance table. Conclusions about detected
+proteins should therefore be interpreted together with FDR-controlled results in
+the main benchmark discussion.
+
+Finally, I recommend separating benchmark generation from tool-specific
+modelling scripts in the public archive. A benchmark intended to compare
+methods should be written to disk as fixed report, annotation, and truth files,
+and all methods should consume the same fixed benchmark object. This would make
+the sample-swap construction auditable and would reduce the risk that
+method-specific code paths also encode parts of the benchmark generation.
+
+I provide a longer reproducible supplement with the supporting diagnostics. It
+includes the reproduced CSF Spectronaut benchmark tables, p-value distributions,
+per-protein effect-size and within-condition variance diagnostics, rebuilt
+sample-swap checks, and protein-swap sensitivity analyses.
+Section 7 of the supplement lists the concrete points I recommend the authors
+address in revision.
+The rebuilt sample-swap and protein-swap analyses are not proposed as definitive
+replacement benchmarks. They are sensitivity checks showing that method rankings
+are sensitive to the benchmark construction and that the current Table 1 should
+be interpreted with this limitation in mind.
+
+In summary, the MSstats+ method may be useful and the K562/CSF benchmark is
+informative for a specific quality-degradation scenario. The manuscript should
+not, however, use this sample-swap benchmark as broad evidence that MSstats+
+generally outperforms established differential-abundance workflows unless the
+label-dependent variance issue is addressed directly.

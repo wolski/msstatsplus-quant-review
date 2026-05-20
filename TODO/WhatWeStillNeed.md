@@ -1,63 +1,75 @@
-- We do not generalize the modelling code in CSF_spectronaut, it should stay close in structure to the code of the Msstats authors. This folder is mainly to replicate the results of the authors.
+- We do not generalize the modelling code in `CSF_Spectronaut` — it stays close in structure to the MSstats authors' code. This folder is mainly to replicate the authors' results.
 
+- However, we structure its outputs so they are compatible with the new protein_swap and sample_swap folders.
 
-- However, we want to structure the outputs in such a way that they are compatible with the new protein_swap and sample_swap folders.
+Shared code that runs on more than one folder lives in `quant/vignettes/` (`.qmd`/`.Rmd`), `quant/R/` (R), and `quant/src/` (Python helpers, e.g. the swap scripts).
 
+The folders `CSF_Spectronaut_protein_swap`, `CSF_Spectronaut_sample_swap` and `Mix_of_Proteome` are analysed by the shared code in `quant/R/` and `quant/vignettes/`.
 
-All code that can run on more then one folder, e.g. should go into subfolder quant vignettes (qmd and rmd files) and and R folder for the R files.
+For `CSF_Spectronaut_protein_swap`: do not compute the noswap — disable that branch for now. Re-enable at the end.
 
-The folders CSF_spectronaut_protein_swap and CSF_spectronaut_protein_swap and Mixture_of_Protoeomes, should be analysed by the code from the R folder
+Folder structure (uniform across all four folders):
+```
+<csffolder>/<dataset>/<normalization>/swap/<modellingPackage>
+```
+`swap` is literal everywhere; `noswap` is disabled. Example:
+```
+CSF_Spectronaut_protein_swap/all_data/log2/swap/DEqMS
+```
 
+Datasets `<all_data>`, `<good_data>`, `<small>`, `<small_good_data>`:
+- `<good_data>` is folder-dependent:
+  - `CSF_Spectronaut_protein_swap`: **neat samples only** (TP/TN come from protein swap, not dilution).
+  - `CSF_Spectronaut`, `CSF_Spectronaut_sample_swap`: neat + 1/2, balanced replicate counts.
+- `<small_good_data>` = 4 vs 4 sampled from `<good_data>`.
 
-Regarding the CSF_Specnaut_protein_swap folder -  do not compute the noswap please, lets disable that branch, for the moment. We will enable it in the end.
+Normalization methods: `log2`, `median`, `quantile`. Audit per-package whether "median" is centering-only or centering + z-scaling, and document.
 
-Folder structure:
-The folder strucure should be 
-small_set/V1_.../...
-
-that is: 
-<csffolder>/<dataset>/<normalization>/<swap/noswap>/<modellingPacakege>
-
-for instance:
-CSF_Spectronaut_protein_swap/all_dilutions/log2/noswap/DEqMS
+Modelling packages (same set everywhere): MSstats, MSstats+, MaxLFQ+limma, DEqMS, msqrob2 (faster code), prolfqua, limpa.
 
 
 
 Regarding what analysis:
 
-# CSF_spectronaut (/Users/wolski/projects/reviews/msstatsplus/RMSV000000701.3-rerun/quant/CSF_Spectronaut)
+# CSF_Spectronaut (`RMSV000000701.3-rerun/quant/CSF_Spectronaut`)
 
-- one analysis with the entire dataset <all_data> - to show that we replicate the results for MSstats, MaxLFQLimma, and the other packages. Exception is msqrob2 (faster code) and proflqua (new)
+**Normalization scope:** CSF_Spectronaut is used **only to replicate the manuscript's Table 1**, so we use **only log2** (no median, no quantile). The 3-normalization scope (log2, median, quantile) applies only to the shared-pipeline folders: `CSF_Spectronaut_protein_swap`, `CSF_Spectronaut_sample_swap`, `Mix_of_Proteome`.
 
-- one analysis with only the good samples <good_data> -> to show that MSstats+ does not perform better then other non msstats package because it analyses sample quality but because, it does not moderate variance.
+- `<all_data>` — replicate the authors' results across MSstats, MaxLFQ+limma, and the other packages. Exceptions are msqrob2 (faster code) and prolfqua (new).
+- `<good_data>` — show that MSstats+ does not outperform non-MSstats packages because it judges sample quality, but because it does *not* moderate variance.
+  - The authors introduce `Mix_of_Proteome` to show that MSstats+ works well on normal datasets. `<good_data>` should be a normal dataset and the modelling tools should behave similarly to how they behave on `Mix_of_Proteome`.
 
-  -  the reason is that they introduce the Mix_of_proteomes to show that msstats+ works good on normal datasets. the good_data should be a normal dataset and the behaviour of the modelling tools should be similar then on the mix of proetomes dataset.
+# CSF_Spectronaut_protein_swap (rename of `CSF_Spectronaut_swap`)
 
-# CSF_spectronaut_protein_swap (/Users/wolski/projects/reviews/msstatsplus/RMSV000000701.3-rerun/quant/CSF_Spectronaut_swap)
+We rename the folder to make clear that we swap proteins in group 2, not samples.
 
-we rename this folder to make it clear that we swap the proteins in group 2 not the samples.
+Current protein-swap universe: the Spectronaut report has 3,041 non-blank
+proteins with at least one precursor, but the protein-swap generator filters to
+`n_precursors >= 2` before building the benchmark truth list. This leaves 2,244
+proteins: 224 Positives in 112 matched pairs and 2,020 Negatives. The 797
+excluded proteins are single-precursor proteins. We keep this conservative
+definition because single-precursor proteins cannot participate in the paired
+protein-swap construction and are less reliable benchmark Negatives.
 
-- We run <all_data> (as before)
-- We run <small> (as before)
-- We trash the no_high_dilution
-- We add a dataset <good_data> with only the neat_samples again, to show that for this dataset the tools behave similarily as for the mix_of_proteomes data.
-- And we also create <small_good_data> with 3 vs 3 samples to show, that p-value moderations matters
+- `<all_data>` (as before)
+- `<small>` (as before)
+- Trash `no_high_dilution`.
+- Add `<good_data>`: neat samples only — show that for this dataset the tools behave similarly to `Mix_of_Proteome`.
+- Add `<small_good_data>`: 4 vs 4 samples — show that p-value moderation matters.
 
+# CSF_Spectronaut_sample_swap (new)
 
-The normalization methods we try is log2, median_scaling and quantile
+- In `CSF_Spectronaut`, the sample swap happens in the scripts, not in the data file — which makes it hard to run the same scripts on protein_swap and the original folder. If we start from a Spectronaut file with samples swapped for 90% of proteins (as in `CSF_Spectronaut`), we can run the same scripts as for `CSF_Spectronaut_protein_swap`.
+- Use the same conservative `n_precursors >= 2` universe as protein-swap:
+  2,244 proteins total, 224 Positives, and 2,020 Negatives. Do not use the full
+  3,041 one-or-more-precursor universe for the rebuilt sample-swap benchmark.
+- `<all_data>`
+- `<good_data>` — all samples created by swapping between neat and 1/2.
+- `<small_good_data>` — 4 vs 4 samples; here MSstats+ and MSstats perform even worse: small prior N makes variance moderation kick in harder, hurting the tools.
 
-# CSF_spectronaut_sample_swap (new)
+# Mix_of_Proteome
 
- - the problem with CSF_spectronaut is that the sample swap is happening in the scripts not in the file, this makes it difficult to run the same scripts on the protein_swap and the original folder. However if we start from a spectronaut file with swapped samples for 90% of the proteins as in the CSF_spectronaut, we can run the same scripts which we run CSF_spectronaut_protein_swap
-
-- We run <all_data>
-- We run <good_data> - all the samples created by swapping between neat and 1/2
-- We run <small_good_data> - 3 vs 3 samples, and here we show, that MSstats+ and MSstats perform even better - because here because of small prior N the variance moderation kicks in much harder. Making the tools behave worse.
-
-
-# Mix_of_proteomes
-
-- We create subfolder <all_data> and analyse the data using the scripts which we used to model CSF_spectronaut_sample_swap, CSF_spectronaut_protein_swap
+- Create `<all_data>` subfolder and analyse with the same scripts used for `CSF_Spectronaut_sample_swap` and `CSF_Spectronaut_protein_swap`.
 
 # Documenting what Msstats did and what we did.
 
@@ -78,12 +90,11 @@ Structure:
 - what the MSstatsPlus publication is about and what it claims
 
 
-### Benchmark result Table 1 biorxv and resubmission2.
+### Benchmark result Table 1 biorxv and resubmission 2.
 
 - Focus on table 1 in the first draft of the manuscript and then on a quite different table 1 in the second draft of the manuscript. Discuss briefly how the tables were obtained. (p-value thresholds). Reference here the biorxv publication.
 
 UPDATE: 
-
 - Introduce the benchmark dataset, and how they were created both CSF and K562.
  - create a table summarizing the number of samples for each dilution. 
  - Create visualizations explaining the swap schema use figure 1([text](../CSF_Spectronaut/CSF_swap_visualization.qmd))
@@ -118,6 +129,11 @@ We show figure 1 (msstatsplus/RMSV000000701.3-rerun/quant/CSF_Spectronaut/CSF_sw
 
 - Describe how we created CSF_Spectronaut_protein_swap, an alternative benchmark dataset where we swap the proteins instead of samples.
 
+- State explicitly that the protein-swap truth list uses the conservative
+  `n_precursors >= 2` universe: 2,244 proteins total, 224 Positives in 112
+  matched pairs, and 2,020 Negatives. The rebuilt sample-swap truth list uses
+  the same 2,244-protein universe, but without pairing Positives.
+
 Crete a figure illustrating the protein swapping.
 
 - Next based on the the CSF_spectronaut_protein_swap we visualize the dataset: 
@@ -129,12 +145,10 @@ Crete a figure illustrating the protein swapping.
 
 # Benchmark results for the Protein Swap dataset
 
-- compare results of <all_good> for protein_swap with those of the mixture_of_proteomes. I expect to see a similar performance profile for the models for both datasets (contrast it with the preformance profile of the swap of sample dataset <all_good>). Include it here.
+- Compare results of `<good_data>` for protein_swap with `Mix_of_Proteome`. Expect a similar performance profile across models for both (contrast it with the performance profile of `<good_data>` from sample_swap).
 
-- Show the performance result for <all_data> and <small> for the protein_swap dataset and contrast them with the results obtained witht the sample_swap dataset.
+- Show performance results for `<all_data>` and `<small>` for the protein_swap dataset and contrast with results from the sample_swap dataset.
 
 
 # Conclusions
-
-
 
