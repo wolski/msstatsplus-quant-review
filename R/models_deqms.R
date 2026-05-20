@@ -6,13 +6,21 @@ source("R/timing.R")
 
 .summarize_deqms_no_ref_col <- function(dat, group_col = 1) {
   dat_ratio <- dat
-  dat_ratio[, 3:ncol(dat)] <- dat_ratio[, 3:ncol(dat)] -
-    matrixStats::rowMedians(as.matrix(dat_ratio[, 3:ncol(dat)]), na.rm = TRUE)
+  # Drop rows where every intensity is NA — rowMedians(na.rm=TRUE) on such a row
+  # returns NaN, which propagates through the centering and downstream produces
+  # log(NaN) inside spectraCounteBayes' loess (crashes on small-N + sparse data
+  # with the log2 / unsanitised normalization path).
+  ints <- as.matrix(dat_ratio[, 3:ncol(dat_ratio)])
+  keep <- rowSums(!is.na(ints)) > 0L
+  dat_ratio <- dat_ratio[keep, , drop = FALSE]
+  ints <- ints[keep, , drop = FALSE]
+  dat_ratio[, 3:ncol(dat_ratio)] <- ints -
+    matrixStats::rowMedians(ints, na.rm = TRUE)
   dat_summary <- plyr::ddply(
-    dat_ratio, colnames(dat)[group_col],
-    function(x) matrixStats::colMedians(as.matrix(x[, 3:ncol(dat)]), na.rm = TRUE)
+    dat_ratio, colnames(dat_ratio)[group_col],
+    function(x) matrixStats::colMedians(as.matrix(x[, 3:ncol(x)]), na.rm = TRUE)
   )
-  colnames(dat_summary)[2:ncol(dat_summary)] <- colnames(dat)[3:ncol(dat)]
+  colnames(dat_summary)[2:ncol(dat_summary)] <- colnames(dat_ratio)[3:ncol(dat_ratio)]
   out <- dat_summary[, -1]
   rownames(out) <- dat_summary[, 1]
   out
@@ -40,6 +48,16 @@ run_deqms <- function(merged_input, annotation, normalization, out_path) {
   class <- annotation$Condition[
     match(colnames(deqms_summarized), annotation$R.FileName)
   ] |> as.factor()
+  observed_by_condition <- sapply(
+    levels(class),
+    function(condition) {
+      rowSums(!is.na(deqms_summarized[, class == condition, drop = FALSE]))
+    }
+  )
+  keep_proteins <- rowSums(observed_by_condition >= 2L) == nlevels(class)
+  deqms_summarized <- deqms_summarized[keep_proteins, , drop = FALSE]
+  pep_count <- pep_count[rownames(deqms_summarized), , drop = FALSE]
+
   design <- model.matrix(~ 0 + class)
   pre_s <- toc(t_pre)
 

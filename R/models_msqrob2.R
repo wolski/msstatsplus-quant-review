@@ -1,7 +1,11 @@
 ## models_msqrob2.R - msqrob2 hurdle on protein-aggregated QFeatures.
 ##
-## Peptide-level center.median runs ALWAYS (vanilla msqrob2 vignette step,
-## independent of the chosen normalization label). Documented in §0.5 audit.
+## Normalization is now strictly label-driven:
+##   log2     -> no normalization (raw log2 peptides aggregated to protein)
+##   median   -> peptide-level center.median (matches msqrob2 vignette)
+##   quantile -> protein-level quantile (limma::normalizeBetweenArrays)
+## Previously the peptide-level center.median ran unconditionally, which made
+## log2 results look like median-centered results.
 
 source("R/normalize.R")
 source("R/preprocess.R")
@@ -34,15 +38,27 @@ run_msqrob2 <- function(merged_input, annotation, normalization, out_path) {
   se <- prolfqua::LFQDataToSummarizedExperiment(lfqdata = lfq_pep_log)
   pe <- QFeatures::QFeatures(list(peptide = se),
                               colData = SummarizedExperiment::colData(se))
-  pe <- QFeatures::normalize(pe, i = "peptide", method = "center.median",
-                              name = "peptide_norm")
+
+  # Peptide-level normalization applied ONLY for the "median" label, matching
+  # the msqrob2 vignette. log2 / quantile aggregate raw log2 peptides.
+  if (normalization == "median") {
+    pe <- QFeatures::normalize(pe, i = "peptide", method = "center.median",
+                                name = "peptide_norm")
+    agg_from <- "peptide_norm"
+  } else {
+    agg_from <- "peptide"
+  }
   pe <- QFeatures::aggregateFeatures(
-    pe, i = "peptide_norm", fcol = "protein_Id", name = "protein"
+    pe, i = agg_from, fcol = "protein_Id", name = "protein"
   )
 
-  prot_mat <- SummarizedExperiment::assay(pe[["protein"]])
-  prot_mat <- apply_normalization(prot_mat, normalization)
-  SummarizedExperiment::assay(pe[["protein"]]) <- prot_mat
+  # Protein-level normalization. log2 = identity; median already done at
+  # peptide level (so identity here); quantile applied here.
+  if (normalization == "quantile") {
+    prot_mat <- SummarizedExperiment::assay(pe[["protein"]])
+    prot_mat <- apply_normalization(prot_mat, normalization)
+    SummarizedExperiment::assay(pe[["protein"]]) <- prot_mat
+  }
   pre_s <- toc(t_pre)
 
   t_mod <- tic()

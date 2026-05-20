@@ -1,10 +1,7 @@
 # CSF_Spectronaut_sample_swap/Makefile — sample-swap benchmark folder.
-# 3 subsets × 3 norms × 7 packages = 63 model fits across 9 cell-blocks.
-# Reads the protein universe directly from CSF_Spectronaut/Report.tsv;
-# no dependency on the protein-swap folder.
-# cwd assumed to be quant/. Invoke from quant/ as:
-#   make -f CSF_Spectronaut_sample_swap/Makefile <target>
-# or include from the top-level Makefile.
+# 3 subsets × 3 norms × 6 default packages = 54 model fits across 9 cell-blocks.
+# Each cell-block has two stamps: .stamp.msstats and .stamp.bundle.
+# Downstream depends on .stamp.bundle so MSstats+ failures do not block.
 
 include mk/common.mk
 
@@ -34,72 +31,102 @@ cells-sample-swap: \
     cells-ss-good_data-log2    cells-ss-good_data-median    cells-ss-good_data-quantile \
     cells-ss-small_good-log2   cells-ss-small_good-median   cells-ss-small_good-quantile
 
-cells-ss-all_data-log2:       CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp
-cells-ss-all_data-median:     CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp
-cells-ss-all_data-quantile:   CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp
-cells-ss-good_data-log2:      CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp
-cells-ss-good_data-median:    CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp
-cells-ss-good_data-quantile:  CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp
-cells-ss-small_good-log2:     CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp
-cells-ss-small_good-median:   CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp
-cells-ss-small_good-quantile: CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp
+cells-ss-all_data-log2:        CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp.msstats         CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp.bundle
+cells-ss-all_data-median:      CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp.msstats       CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp.bundle
+cells-ss-all_data-quantile:    CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp.msstats     CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp.bundle
+cells-ss-good_data-log2:       CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp.msstats        CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp.bundle
+cells-ss-good_data-median:     CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp.msstats      CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp.bundle
+cells-ss-good_data-quantile:   CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp.msstats    CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp.bundle
+cells-ss-small_good-log2:      CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp.msstats     CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp.bundle
+cells-ss-small_good-median:    CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp.msstats   CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp.bundle
+cells-ss-small_good-quantile:  CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp.msstats CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp.bundle
 
-CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+# MSstats stamps -------------------------------------------------------------
+CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data log2 MSstats
 	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data log2 "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data median MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data median "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data quantile MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data quantile "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data log2 MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data log2 "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data median MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data median "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data quantile MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data quantile "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data log2 MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data log2 "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data median MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data median "MSstats+"
+	touch $@
+
+CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp.msstats: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data quantile MSstats
+	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data quantile "MSstats+"
+	touch $@
+
+
+# Bundle stamps (fast non-MSstats packages; msqrob2 skipped by default) -------
+CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/all_data log2
 	touch $@
 
-CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data median MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data median "MSstats+"
+CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/all_data median
 	touch $@
 
-CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data quantile MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/all_data quantile "MSstats+"
+CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/all_data quantile
 	touch $@
 
-CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data log2 MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data log2 "MSstats+"
+CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/good_data log2
 	touch $@
 
-CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data median MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data median "MSstats+"
+CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/good_data median
 	touch $@
 
-CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data quantile MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/good_data quantile "MSstats+"
+CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/good_data quantile
 	touch $@
 
-CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data log2 MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data log2 "MSstats+"
+CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/small_good_data log2
 	touch $@
 
-CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data median MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data median "MSstats+"
+CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/small_good_data median
 	touch $@
 
-CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data quantile MSstats
-	Rscript R/run_cell.R CSF_Spectronaut_sample_swap/small_good_data quantile "MSstats+"
+CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp.bundle: CSF_Spectronaut_sample_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_sample_swap/small_good_data quantile
 	touch $@
 
 
-# --- Diagnostics -------------------------------------------------------------
+# --- Diagnostics (depend on .stamp.bundle) ----------------------------------
 diag-sample-swap: \
     diag-ss-all_data-log2     diag-ss-all_data-median     diag-ss-all_data-quantile \
     diag-ss-good_data-log2    diag-ss-good_data-median    diag-ss-good_data-quantile \
@@ -115,31 +142,31 @@ diag-ss-small_good-log2:      CSF_Spectronaut_sample_swap/small_good_data/log2/s
 diag-ss-small_good-median:    CSF_Spectronaut_sample_swap/small_good_data/median/swap/diagnostics.html
 diag-ss-small_good-quantile:  CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/diagnostics.html
 
-CSF_Spectronaut_sample_swap/all_data/log2/swap/diagnostics.html: CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/all_data/log2/swap/diagnostics.html: CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/all_data/log2/swap            -P subset_dir=CSF_Spectronaut_sample_swap/all_data        -P normalization=log2     -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/all_data/median/swap/diagnostics.html: CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/all_data/median/swap/diagnostics.html: CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/all_data/median/swap          -P subset_dir=CSF_Spectronaut_sample_swap/all_data        -P normalization=median   -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/all_data/quantile/swap/diagnostics.html: CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/all_data/quantile/swap/diagnostics.html: CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/all_data/quantile/swap        -P subset_dir=CSF_Spectronaut_sample_swap/all_data        -P normalization=quantile -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/good_data/log2/swap/diagnostics.html: CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/good_data/log2/swap/diagnostics.html: CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/good_data/log2/swap           -P subset_dir=CSF_Spectronaut_sample_swap/good_data       -P normalization=log2     -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/good_data/median/swap/diagnostics.html: CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/good_data/median/swap/diagnostics.html: CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/good_data/median/swap         -P subset_dir=CSF_Spectronaut_sample_swap/good_data       -P normalization=median   -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/good_data/quantile/swap/diagnostics.html: CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/good_data/quantile/swap/diagnostics.html: CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/good_data/quantile/swap       -P subset_dir=CSF_Spectronaut_sample_swap/good_data       -P normalization=quantile -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/small_good_data/log2/swap/diagnostics.html: CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/small_good_data/log2/swap/diagnostics.html: CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/small_good_data/log2/swap     -P subset_dir=CSF_Spectronaut_sample_swap/small_good_data -P normalization=log2     -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/small_good_data/median/swap/diagnostics.html: CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/small_good_data/median/swap/diagnostics.html: CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/small_good_data/median/swap   -P subset_dir=CSF_Spectronaut_sample_swap/small_good_data -P normalization=median   -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
-CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/diagnostics.html: CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
+CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/diagnostics.html: CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp.bundle vignettes/diagnostics.qmd $(VIGNETTE_HELPERS)
 	quarto render vignettes/diagnostics.qmd --output-dir ../CSF_Spectronaut_sample_swap/small_good_data/quantile/swap -P subset_dir=CSF_Spectronaut_sample_swap/small_good_data -P normalization=quantile -P truth_kind=sample_swap -P truth_path=CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv -P base_dir=..
 
 

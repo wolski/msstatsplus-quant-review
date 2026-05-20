@@ -25,29 +25,90 @@ include mk/common.mk
 include CSF_Spectronaut/Makefile
 include CSF_Spectronaut_protein_swap/Makefile
 include CSF_Spectronaut_sample_swap/Makefile
-include Mix_of_Proteome/Makefile
+# Mix_of_Proteome temporarily excluded — its 3v3 contrast is too small for
+# DEqMS's spectraCounteBayes; needs multi-condition annotation + 2-line
+# tweaks to R/models_msqrob2.R and R/models_msstats.R. Re-enable by
+# un-commenting this line and removing the `mix` references in the
+# aggregator targets below.
+# include Mix_of_Proteome/Makefile
 
 
 .PHONY: all symlinks prep cells diagnostics review \
         review-html review-pdf review-best-effort \
-        clean clean-models clean-subsets clean-prep
+        clean clean-models clean-subsets clean-prep \
+        all_log2 all_median all_quantile \
+        all_log2_swap \
+        cells-log2 cells-median cells-quantile cells-log2-swap \
+        diag-log2  diag-median  diag-quantile diag-log2-swap
 
 
 all: symlinks prep cells diagnostics review
 
 
 # =============================================================================
+# Per-normalization shortcuts. `make all_<norm>` runs symlinks + prep + only
+# the <norm> cells + their diagnostics + a best-effort review render.
+#
+# CSF_Spectronaut is log2-only (authors' replication), so it appears only in
+# all_log2. protein_swap and sample_swap appear in all three norms.
+# =============================================================================
+cells-log2: \
+    cells-csf-all_data-log2 cells-csf-good_data-log2 \
+    cells-ps-all_data-log2  cells-ps-good_data-log2  cells-ps-small-log2  cells-ps-small_good-log2 \
+    cells-ss-all_data-log2  cells-ss-good_data-log2  cells-ss-small_good-log2
+
+cells-median: \
+    cells-ps-all_data-median  cells-ps-good_data-median  cells-ps-small-median  cells-ps-small_good-median \
+    cells-ss-all_data-median  cells-ss-good_data-median  cells-ss-small_good-median
+
+cells-quantile: \
+    cells-ps-all_data-quantile  cells-ps-good_data-quantile  cells-ps-small-quantile  cells-ps-small_good-quantile \
+    cells-ss-all_data-quantile  cells-ss-good_data-quantile  cells-ss-small_good-quantile
+
+diag-log2: \
+    diag-csf-all_data-log2 diag-csf-good_data-log2 \
+    diag-ps-all_data-log2  diag-ps-good_data-log2  diag-ps-small-log2  diag-ps-small_good-log2 \
+    diag-ss-all_data-log2  diag-ss-good_data-log2  diag-ss-small_good-log2
+
+diag-median: \
+    diag-ps-all_data-median  diag-ps-good_data-median  diag-ps-small-median  diag-ps-small_good-median \
+    diag-ss-all_data-median  diag-ss-good_data-median  diag-ss-small_good-median
+
+diag-quantile: \
+    diag-ps-all_data-quantile  diag-ps-good_data-quantile  diag-ps-small-quantile  diag-ps-small_good-quantile \
+    diag-ss-all_data-quantile  diag-ss-good_data-quantile  diag-ss-small_good-quantile
+
+all_log2:     symlinks prep cells-log2     diag-log2     review-best-effort
+all_median:   symlinks prep cells-median   diag-median   review-best-effort
+all_quantile: symlinks prep cells-quantile diag-quantile review-best-effort
+
+# Swap-folders only (drops CSF_Spectronaut authors' replication).
+# CSF is log2-only, so all_median / all_quantile already exclude it — only the
+# log2 case needs a swap-only variant.
+cells-log2-swap: \
+    cells-ps-all_data-log2  cells-ps-good_data-log2  cells-ps-small-log2  cells-ps-small_good-log2 \
+    cells-ss-all_data-log2  cells-ss-good_data-log2  cells-ss-small_good-log2
+
+diag-log2-swap: \
+    diag-ps-all_data-log2   diag-ps-good_data-log2   diag-ps-small-log2   diag-ps-small_good-log2 \
+    diag-ss-all_data-log2   diag-ss-good_data-log2   diag-ss-small_good-log2
+
+all_log2_swap: symlinks-csf prep-protein-swap prep-sample-swap cells-log2-swap diag-log2-swap review-best-effort
+
+
+# =============================================================================
 # §0. SYMLINKS — delegated to folder Makefiles (so standalone invocation works).
 # =============================================================================
-symlinks: symlinks-csf symlinks-mix
+symlinks: symlinks-csf
+# symlinks-mix     # Mix_of_Proteome temporarily excluded
 
 
 # =============================================================================
 # §1-3. Aggregators (folder Makefiles supply the per-folder rules).
 # =============================================================================
-prep:        prep-csf prep-protein-swap prep-sample-swap prep-mix
-cells:       cells-csf cells-protein-swap cells-sample-swap cells-mix
-diagnostics: diag-csf  diag-protein-swap  diag-sample-swap  diag-mix
+prep:        prep-csf prep-protein-swap prep-sample-swap     # prep-mix excluded
+cells:       cells-csf cells-protein-swap cells-sample-swap  # cells-mix excluded
+diagnostics: diag-csf  diag-protein-swap  diag-sample-swap   # diag-mix excluded
 
 
 # =============================================================================
@@ -64,15 +125,30 @@ review: review-html review-pdf
 #   (b) `make review-best-effort` — render against whatever is on disk
 #       without requiring stamps.
 REVIEW_DEPS = vignettes/review.qmd $(VIGNETTE_HELPERS) \
-    CSF_Spectronaut/all_data/log2/swap/.stamp                            CSF_Spectronaut/good_data/log2/swap/.stamp \
-    CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp                CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp                CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp \
-    CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp               CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp               CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp \
-    CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp         CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp         CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp \
-    CSF_Spectronaut_protein_swap/all_data/log2/swap/.stamp               CSF_Spectronaut_protein_swap/all_data/median/swap/.stamp               CSF_Spectronaut_protein_swap/all_data/quantile/swap/.stamp \
-    CSF_Spectronaut_protein_swap/good_data/log2/swap/.stamp              CSF_Spectronaut_protein_swap/good_data/median/swap/.stamp              CSF_Spectronaut_protein_swap/good_data/quantile/swap/.stamp \
-    CSF_Spectronaut_protein_swap/small/log2/swap/.stamp                  CSF_Spectronaut_protein_swap/small/median/swap/.stamp                  CSF_Spectronaut_protein_swap/small/quantile/swap/.stamp \
-    CSF_Spectronaut_protein_swap/small_good_data/log2/swap/.stamp        CSF_Spectronaut_protein_swap/small_good_data/median/swap/.stamp        CSF_Spectronaut_protein_swap/small_good_data/quantile/swap/.stamp \
-    Mix_of_Proteome/all_data/log2/swap/.stamp                            Mix_of_Proteome/all_data/median/swap/.stamp                            Mix_of_Proteome/all_data/quantile/swap/.stamp
+    CSF_Spectronaut/all_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut/good_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/all_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/all_data/median/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/all_data/quantile/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/good_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/good_data/median/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/good_data/quantile/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/small_good_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/small_good_data/median/swap/.stamp.bundle \
+    CSF_Spectronaut_sample_swap/small_good_data/quantile/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/all_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/all_data/median/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/all_data/quantile/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/good_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/good_data/median/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/good_data/quantile/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/small/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/small/median/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/small/quantile/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/small_good_data/log2/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/small_good_data/median/swap/.stamp.bundle \
+    CSF_Spectronaut_protein_swap/small_good_data/quantile/swap/.stamp.bundle
+    # Mix_of_Proteome stamps excluded for now
 
 review-html: $(REVIEW_DEPS)
 	cd vignettes && quarto render review.qmd --to html
@@ -90,7 +166,7 @@ review-best-effort: vignettes/review.qmd $(VIGNETTE_HELPERS) \
                     CSF_Spectronaut/.prep.stamp \
                     CSF_Spectronaut_protein_swap/.prep.stamp \
                     CSF_Spectronaut_sample_swap/.prep.stamp \
-                    Mix_of_Proteome/.prep.stamp
+                    # Mix_of_Proteome/.prep.stamp     # excluded for now
 	cd vignettes && quarto render review.qmd --to html
 	cd vignettes && quarto render review.qmd --to pdf
 
@@ -116,9 +192,9 @@ clean:
 	@echo "  make clean-prep     - also remove swap-script outputs at folder root"
 	@echo "Original Spectronaut TSVs and annotations are NEVER touched."
 
-clean-models:  clean-csf-models  clean-ps-models  clean-ss-models  clean-mix-models clean-root-debris
-clean-subsets: clean-csf-subsets clean-ps-subsets clean-ss-subsets clean-mix-subsets
-clean-prep:    clean-csf-prep    clean-ps-prep    clean-ss-prep    clean-mix-prep
+clean-models:  clean-csf-models  clean-ps-models  clean-ss-models  clean-root-debris   # clean-mix-models excluded
+clean-subsets: clean-csf-subsets clean-ps-subsets clean-ss-subsets                      # clean-mix-subsets excluded
+clean-prep:    clean-csf-prep    clean-ps-prep    clean-ss-prep                         # clean-mix-prep excluded
 
 # MSstats writes log files to cwd when invoked. Cells for protein_swap,
 # sample_swap, and Mix_of_Proteome are run from quant/ root, so their debris

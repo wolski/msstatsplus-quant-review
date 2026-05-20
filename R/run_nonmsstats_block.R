@@ -1,12 +1,13 @@
-## run_nonmsstats_block.R - execute the 5 non-MSstats packages for one
+## run_nonmsstats_block.R - execute the fast non-MSstats packages for one
 ## (subset_dir, normalization) cell-block in a single R session, sharing
 ## the Report.tsv + annotation fread/merge cost across packages.
 ##
 ## Usage:
 ##   Rscript R/run_nonmsstats_block.R <subset_dir> <normalization> [pkg1,pkg2,...]
 ##
-## Defaults to all five non-MSstats packages: MaxLFQ_limma, DEqMS, msqrob2,
-## prolfqua, limpa. Each writes to <subset_dir>/<normalization>/swap/<pkg>/.
+## Defaults to the fast non-MSstats packages: MaxLFQ_limma, DEqMS, prolfqua,
+## limpa. msqrob2 remains available when explicitly requested as the optional
+## third argument. Each package writes to <subset_dir>/<normalization>/swap/<pkg>/.
 ## Per-package failures are caught (tryCatch); other packages still run.
 ## The script exits non-zero if any requested package failed.
 
@@ -19,7 +20,7 @@ normalization <- args[[2]]
 pkgs <- if (length(args) == 3) {
   strsplit(args[[3]], ",", fixed = TRUE)[[1]]
 } else {
-  c("MaxLFQ_limma", "DEqMS", "msqrob2", "prolfqua", "limpa")
+  c("MaxLFQ_limma", "DEqMS", "prolfqua", "limpa")
 }
 
 suppressPackageStartupMessages(library(data.table))
@@ -27,9 +28,11 @@ source("R/paths.R")
 source("R/preprocess.R")
 source("R/models_maxlfq_limma.R")
 source("R/models_deqms.R")
-source("R/models_msqrob2.R")
 source("R/models_prolfqua.R")
 source("R/models_limpa.R")
+if ("msqrob2" %in% pkgs) {
+  source("R/models_msqrob2.R")
+}
 
 report_path     <- file.path(subset_dir, "Report.tsv")
 annotation_path <- file.path(subset_dir, "annotation.csv")
