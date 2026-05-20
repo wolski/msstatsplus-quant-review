@@ -2,9 +2,12 @@
 ##
 ## Emulates the authors' CSF sample-swap design: 10 % of "quantified
 ## proteins" keep their labels (Positive), 90 % get their condition
-## labels permuted (Negative). Protein universe = unique PG.ProteinGroups
-## in the input Spectronaut report; filtered to proteins with at least
-## one finite intensity in a non-blank run.
+## labels permuted (Negative). Protein universe = proteins quantified
+## in non-blank runs with at least 2 unique precursors (matching the
+## protein-swap script's filter in src/swap_spectronaut_report.py
+## compute_protein_stats — gives both benchmarks the same 2244-protein
+## universe and lets sample-swap and protein-swap PPV/TPR be compared
+## directly).
 ##
 ## Input:  CSF_Spectronaut/Report.tsv  (Spectronaut DIA report)
 ## Output: CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv
@@ -25,15 +28,25 @@ if (!file.exists(report_path)) {
 }
 
 cat(sprintf("[build_sample_swap_list] reading %s ...\n", report_path))
-rep <- fread(report_path, sep = "\t",
-             select = c("R.Condition", "PG.ProteinGroups", "F.PeakArea"))
-rep <- rep[tolower(R.Condition) != "blank"]
-rep <- rep[is.finite(F.PeakArea) & F.PeakArea > 0]
+report <- fread(report_path, sep = "\t",
+                select = c("R.Condition", "PG.ProteinGroups",
+                           "EG.PrecursorId", "F.PeakArea"))
+report <- report[tolower(R.Condition) != "blank"]
+report <- report[is.finite(F.PeakArea) & F.PeakArea > 0]
+report <- report[nzchar(PG.ProteinGroups)]
 
-proteins <- sort(unique(rep$PG.ProteinGroups))
-proteins <- proteins[nzchar(proteins)]
+# Per-protein precursor count, then filter n_precursors >= 2 (same as the
+# protein-swap script's compute_protein_stats filter).
+prot_stats <- unique(report[, .(PG.ProteinGroups, EG.PrecursorId)])[
+  , .(n_precursors = .N), by = PG.ProteinGroups
+]
+prot_stats <- prot_stats[n_precursors >= 2L]
+
+proteins <- sort(prot_stats$PG.ProteinGroups)
 n <- length(proteins)
-cat(sprintf("[build_sample_swap_list] %d unique proteins quantified in non-blank runs\n", n))
+cat(sprintf(
+  "[build_sample_swap_list] %d proteins with n_precursors >= 2 in non-blank runs\n",
+  n))
 
 set.seed(123)
 n_pos <- round(0.10 * n)

@@ -5,8 +5,9 @@
 ifndef COMMON_MK_INCLUDED
 COMMON_MK_INCLUDED := 1
 
-# Python interpreter. Override with `make PYTHON=python ...` if needed.
-PYTHON ?= python3
+# Python interpreter. Prefer the project's venv (has polars + deps installed).
+# Override on the command line with `make PYTHON=/some/other/python ...`.
+PYTHON ?= $(if $(wildcard .venv/bin/python3),.venv/bin/python3,python3)
 
 # Shared R model code. Editing any of these invalidates every cell stamp
 # across all folders (touch propagates via Make's mtime check).

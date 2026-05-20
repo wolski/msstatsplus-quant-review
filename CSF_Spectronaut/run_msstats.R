@@ -35,7 +35,7 @@ msstats_input = MSstatsConvert::SpectronauttoMSstatsFormat(
   removeMissingFeatures = .75,
   runOrder = run_order,
   max_depth = "auto",
-  numberOfCores = 12
+  numberOfCores = 4
 )
 fwrite(msstats_input,
        file = file.path(out_dir("MSstats+"), "MSstats+_input.csv"))
@@ -47,7 +47,7 @@ summarized = dataProcess(
   n_top_feature = 100,
   MBimpute = TRUE,
   summaryMethod = "linear",
-  numberOfCores = 12
+  numberOfCores = 4
 )
 save(summarized,
      file = file.path(out_dir("MSstats+"), "MSstats+_summarized.rda"))
@@ -68,7 +68,7 @@ summarized$ProteinLevelData$SUBJECT = as.numeric(as.factor(
 pre_s = toc(t_pre)
 t_mod = tic()
 msstatsplus_model = groupComparison(comparison, summarized,
-                                    numberOfCores = 12)$ComparisonResult
+                                    numberOfCores = 4)$ComparisonResult
 mod_s = toc(t_mod)
 
 msstatsplus_model = label_proteins(msstatsplus_model)
@@ -99,7 +99,7 @@ base_msstats_summarized = dataProcess(
   n_top_feature = 100,
   MBimpute = TRUE,
   summaryMethod = "TMP",
-  numberOfCores = 12
+  numberOfCores = 4
 )
 save(base_msstats_summarized,
      file = file.path(out_dir("MSstats"), "MSstats_summarized.rda"))
@@ -123,7 +123,7 @@ base_msstats_summarized$ProteinLevelData$SUBJECT = as.numeric(as.factor(
 pre_s = toc(t_pre)
 t_mod = tic()
 msstats_model = groupComparison(comparison, base_msstats_summarized,
-                                numberOfCores = 12)$ComparisonResult
+                                numberOfCores = 4)$ComparisonResult
 mod_s = toc(t_mod)
 
 msstats_model = label_proteins(msstats_model)

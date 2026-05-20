@@ -12,7 +12,7 @@ source("R/normalize.R")
 source("R/timing.R")
 
 run_msstats <- function(raw_input, annotation, normalization, out_path,
-                         plus = FALSE, n_cores = 8L) {
+                         plus = FALSE, n_cores = 4L) {
   suppressPackageStartupMessages({
     library(MSstats); library(MSstatsConvert); library(data.table)
   })

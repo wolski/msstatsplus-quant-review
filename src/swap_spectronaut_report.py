@@ -258,6 +258,12 @@ def apply_swap(
     df = df.join(groups.select(COL_RUN, "group"), on=COL_RUN, how="left")
 
     # Drop surplus precursors / peptides entirely (across all runs, all dilutions).
+    # TODO: scope this drop to the paired proteins only. Currently the filter
+    # removes the precursor/peptide IDs everywhere — if any dropped ID is
+    # shared with a non-pair (Negative) protein, that protein loses rows
+    # unfairly. Tryptic peptides are usually protein-specific so the
+    # real-world impact is small, but the filter should restrict to rows
+    # where PG.ProteinGroups is one of the pair members involved.
     drop_prec_ids = set(dropped_precursors["item"].to_list())
     drop_pep_ids = set(dropped_peptides["item"].to_list())
     if drop_prec_ids:
@@ -514,9 +520,26 @@ def main() -> int:
     groups.write_csv(out_grp)
 
     # Canonical companions for the Makefile pipeline.
+    # IMPORTANT: protein-swap's design contrast is G1 vs G2 (the random
+    # split within each dilution), NOT the original dilution-based Condition.
+    # So we rewrite the annotation's Condition column from the swap group
+    # assignment: G1 -> Condition1, G2 -> Condition2. Other columns
+    # (BioReplicate, Order, Label) come from the input annotation unchanged.
     out_annotation = args.out_dir / "annotation.csv"
+    ann_orig = pl.read_csv(args.annotation)
+    ann_new = (
+        groups.select(["R.FileName", "group"])
+              .with_columns(
+                  pl.when(pl.col("group") == "G1").then(pl.lit("Condition1"))
+                    .when(pl.col("group") == "G2").then(pl.lit("Condition2"))
+                    .otherwise(pl.col("group"))
+                    .alias("Condition")
+              )
+              .drop("group")
+              .join(ann_orig.drop("Condition"), on="R.FileName", how="left")
+    )
     print(f"[write] {out_annotation}", file=sys.stderr)
-    shutil.copy(args.annotation, out_annotation)
+    ann_new.write_csv(out_annotation)
 
     # CSF_protein_swap_list.csv: every protein in prot_stats (universe used
     # by pairing) gets a Positive/Negative label. Positives are pair members.
