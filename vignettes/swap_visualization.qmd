@@ -1,0 +1,67 @@
+---
+title: "Swap-benchmark visualisation"
+format:
+  html:
+    self-contained: true
+params:
+  csffolder: "CSF_Spectronaut_protein_swap"
+  dataset: "good_data"
+  normalization: "log2"
+  swap_type: "protein"   # protein | sample | none
+  base_dir: "."
+  protein_matrix_rda: ""
+  annotation_path: ""
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+})
+source(file.path(params$base_dir, "R/figures.R"))
+```
+
+## `r params$csffolder` / `r params$dataset` / `r params$normalization`
+
+Swap type: **`r params$swap_type`**
+
+```{r}
+annotation <- if (nzchar(params$annotation_path)) fread(params$annotation_path) else NULL
+mat <- NULL
+if (nzchar(params$protein_matrix_rda) && file.exists(params$protein_matrix_rda)) {
+  e <- new.env()
+  load(params$protein_matrix_rda, envir = e)
+  mat <- get(ls(e)[1], envir = e)
+}
+```
+
+## Heatmap (top-500 by variance)
+
+```{r}
+if (!is.null(mat)) fig_heatmap(mat, annotation = annotation)
+```
+
+## NA-pattern heatmap
+
+```{r}
+if (!is.null(mat)) fig_na_heatmap(mat, annotation = annotation)
+```
+
+## Per-sample density
+
+```{r}
+if (!is.null(mat)) print(fig_density(mat))
+```
+
+## Swap schematic
+
+```{r, results='asis'}
+if (params$swap_type == "protein") {
+  cat("Schematic figure for the protein swap lives in `vignettes/figures/protein_swap.png` (drawn in §8.4).")
+} else if (params$swap_type == "sample") {
+  cat("Schematic figure for the sample swap lives in `vignettes/figures/sample_swap.png` (lifted from CSF_swap_visualization.qmd).")
+} else {
+  cat("Mix-of-Proteome: no swap, ground truth comes from species labels.")
+}
+```

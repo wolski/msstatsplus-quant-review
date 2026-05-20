@@ -107,7 +107,7 @@ maxlfq_input = preprocess(
   intensity_col = "F.PeakArea",
   median_normalization = FALSE,
   log2_intensity_cutoff = 0,
-  pdf_out = file.path(out_dir("limma"), "qc-plots.pdf"),
+  pdf_out = file.path(out_dir("MaxLFQ_limma"), "qc-plots.pdf"),
   pdf_width = 12,
   pdf_height = 8,
   intensity_col_sep = NULL,
@@ -139,8 +139,8 @@ limma_model = data.frame(
 )
 limma_model$adj.pvalue = p.adjust(limma_model$pvalue, method = "BH")
 limma_model = label_proteins(limma_model)
-fwrite(limma_model, file = file.path(out_dir("limma"), "limma_model.csv"))
-write_timing("limma", out_dir("limma"), pre_s, mod_s)
+fwrite(limma_model, file = file.path(out_dir("MaxLFQ_limma"), "limma_model.csv"))
+write_timing("limma", out_dir("MaxLFQ_limma"), pre_s, mod_s)
 message("limma finished")
 
 ## limpa -----------------------------------------------------------------------

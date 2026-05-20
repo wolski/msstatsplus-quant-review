@@ -51,8 +51,10 @@ build_table1 <- function(cell_dir, truth_df,
     }
     m <- fread(f)
     m <- as.data.frame(label_proteins(as.data.frame(m), truth_df))
-    p_metrics <- tpr_ppv(m$pvalue, m$logFC, m$Label, threshold_p)
-    f_metrics <- tpr_ppv(m$adj.pvalue, m$logFC, m$Label, threshold_fdr)
+    # MSstats/MSstats+ write log2FC; the other packages write logFC. Normalise.
+    fc <- if ("logFC" %in% names(m)) m$logFC else m$log2FC
+    p_metrics <- tpr_ppv(m$pvalue, fc, m$Label, threshold_p)
+    f_metrics <- tpr_ppv(m$adj.pvalue, fc, m$Label, threshold_fdr)
     data.table(Package = pkg,
                TPR_pval = p_metrics$TPR, PPV_pval = p_metrics$PPV,
                TPR_FDR  = f_metrics$TPR, PPV_FDR  = f_metrics$PPV)
