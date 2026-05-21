@@ -1,15 +1,17 @@
-# MSstats+ benchmark reanalysis
+## MSstats+ benchmark reanalysis
 
 This repository contains a review and reanalysis of the quantitative proteomics
 benchmark distributed with the MSstats+ manuscript and MassIVE reanalysis
 `RMSV000000701.3`.
+
+Rendered review vignettes: <https://wolski.github.io/msstatsplus-quant-review/>.
 
 The repository is intended to make the review workflow reproducible: it records
 the input layout expected from the MassIVE archive, the scripts used to build
 benchmark subsets and synthetic swap ground truth, and the Makefile targets used
 to run the method comparisons and render the review vignette.
 
-## Related paper and data archive
+### Related paper and data archive
 
 - bioRxiv preprint: [Accounting for longitudinal peak quality metrics with
   MSstats+ enhances differential analysis in proteomic experiments with
@@ -27,7 +29,7 @@ tracks the third received/reviewed revision of the quantification reanalysis.
 At the time this README was written, I could verify the public
 `RMSV000000701.2` MassIVE page, but not a public `RMSV000000701.3` URL.
 
-## Repository structure
+### Repository structure
 
 - `Makefile` is the top-level orchestration file. It includes all folder
   Makefiles and exposes aggregate targets such as `prep`, `cells`,
@@ -52,7 +54,7 @@ At the time this README was written, I could verify the public
 - `TODO/` contains working notes and discrepancy reports; it is not part of the
   executable pipeline.
 
-## Makefile workflow
+### Makefile workflow
 
 Run commands from the repository root, i.e. from `quant/`.
 
@@ -92,7 +94,7 @@ settings. The clean targets are layered:
 Raw Spectronaut report files from the archive are not removed by the clean
 targets.
 
-## Reproducibility notes
+### Reproducibility notes
 
 The Python helper environment is described by `pyproject.toml`; it requires
 Python 3.10 or newer and `polars`. The R workflow expects the packages used by

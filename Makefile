@@ -35,6 +35,7 @@ include CSF_Spectronaut_sample_swap/Makefile
 
 .PHONY: all symlinks prep cells diagnostics review \
         review-html review-pdf review-best-effort \
+        render-vignettes gh-pages \
         clean clean-models clean-subsets clean-prep \
         all_log2 all_median all_quantile \
         all_log2_swap \
@@ -169,6 +170,20 @@ review-best-effort: vignettes/review.qmd $(VIGNETTE_HELPERS) \
                     # Mix_of_Proteome/.prep.stamp     # excluded for now
 	cd vignettes && quarto render review.qmd --to html
 	cd vignettes && quarto render review.qmd --to pdf
+
+
+# =============================================================================
+# GitHub Pages — render and staging are deliberately separate. Chain:
+#   make render-vignettes && make gh-pages
+# `gh-pages` does not depend on `render-vignettes`; the publish script
+# aborts if any HTML it needs is missing in vignettes/, rather than
+# re-rendering silently. See TODO/TODO_ghpages.md.
+# =============================================================================
+render-vignettes:
+	bash src/render_vignettes.sh
+
+gh-pages:
+	bash src/publish_gh_pages.sh
 
 
 # =============================================================================

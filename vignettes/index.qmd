@@ -1,0 +1,25 @@
+---
+title: "MSstats+ Benchmark Review (RMSV000000701.3)"
+subtitle: "Rendered vignettes from the rerun analysis"
+author: "Witold Wolski"
+date: today
+format:
+  html:
+    self-contained: true
+    toc: false
+---
+
+## Rendered vignettes
+
+- [Supplement to the MSstats+ benchmark review](review_supplement.html)
+- [CSF_Spectronaut data visualization](CSF_Spectronaut_data_vis.html)
+- [CSF_Spectronaut_sample_swap data visualization](CSF_Spectronaut_sample_swap_data_vis.html)
+- [CSF_Spectronaut_protein_swap data visualization](CSF_Spectronaut_protein_swap_data_vis.html)
+
+`diagnostics.qmd` and `swap_visualization.qmd` are part of the parameterized
+matrix-render pipeline and require per-cell parameter overrides; they are
+not published to this site.
+
+---
+
+{{< include ../README.md >}}

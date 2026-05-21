@@ -16,9 +16,9 @@ Rplots.pdf
 .quarto/
 **/*.quarto_ipynb
 **/*_files/
-vignettes/review.html
-vignettes/review.pdf
-vignettes/review2.html
+vignettes/*.html
+vignettes/*.pdf
+!vignettes/*.qmd
 
 # --- Python ---
 __pycache__/
