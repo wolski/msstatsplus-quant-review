@@ -12,7 +12,7 @@
 #   make diagnostics                   # all 26 diagnostics HTMLs
 #   make review                        # review.html + review.pdf
 #   make review-best-effort            # render review against partial outputs
-#   make cells-csf                     # one folder's cells (and similarly for ps/ss/mix)
+#   make cells-csf | cells-protein-swap | cells-sample-swap  # one folder's cells (mix excluded)
 #   make clean-models | clean-subsets | clean-prep
 #
 # Parallelism: each cell-block runs MSstats + MSstats+ + bundle sequentially
@@ -58,7 +58,7 @@ help:
 	@echo 'Per-norm shortcuts:'
 	@echo '  all_log2 | all_median | all_quantile'
 	@echo '  cells-{log2,median,quantile} | diag-{log2,median,quantile}'
-	@echo '  cells-csf | cells-ps | cells-ss | cells-mix (per-folder)'
+	@echo '  cells-csf | cells-protein-swap | cells-sample-swap (per-folder; mix excluded)'
 	@echo
 	@echo 'GitHub Pages (deliberately separate — chain explicitly):'
 	@echo '  render-vignettes     qmd -> html for vignettes/*.qmd'
