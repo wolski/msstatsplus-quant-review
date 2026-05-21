@@ -7,12 +7,13 @@
 # Invoke from quant/:
 #   make all                           # symlinks + prep + cells + review
 #   make symlinks
-#   make prep                          # all four folders' prep
-#   make cells                         # all 26 cell-blocks
-#   make diagnostics                   # all 26 diagnostics HTMLs (SERIAL; not in `all`)
+#   make prep                          # all three active folders' prep
+#   make cells                         # all 23 cell-blocks
+#   make diagnostics                   # all per-cell diagnostics HTMLs (SERIAL; not in `all`)
 #   make review                        # review.html + review.pdf
 #   make review-best-effort            # render review against partial outputs
-#   make cells-csf | cells-protein-swap | cells-sample-swap  # one folder's cells (mix excluded)
+#   make cells-csf | cells-protein-swap | cells-sample-swap  # one folder's cells
+#   make mix | mix-diagnostics         # Mix_of_Proteome standalone pipeline (not in `all`)
 #   make clean-models | clean-subsets | clean-prep
 #
 # Why diagnostics is separate: every diag-* target renders the same
@@ -41,6 +42,7 @@ include CSF_Spectronaut_sample_swap/Makefile
 .PHONY: help all symlinks prep cells diagnostics review \
         review-html review-pdf review-best-effort \
         render-vignettes gh-pages \
+        mix mix-diagnostics \
         clean clean-models clean-subsets clean-prep \
         all_log2 all_median all_quantile \
         all_log2_swap \
@@ -68,6 +70,10 @@ help:
 	@echo 'GitHub Pages (deliberately separate — chain explicitly):'
 	@echo '  render-vignettes     qmd -> html for vignettes/*.qmd'
 	@echo '  gh-pages             force-push staged HTML to orphan gh-pages branch'
+	@echo
+	@echo 'Mix_of_Proteome (standalone; not part of all):'
+	@echo '  mix                  symlinks + prep + cells for Mix_of_Proteome/'
+	@echo '  mix-diagnostics      Mix diagnostics HTMLs (serial)'
 	@echo
 	@echo 'Clean (layered):'
 	@echo '  clean-models         remove model outputs + diagnostics'
@@ -230,6 +236,22 @@ render-vignettes:
 
 gh-pages:
 	bash src/publish_gh_pages.sh
+
+
+# =============================================================================
+# Mix_of_Proteome — standalone pipeline. Deliberately not part of `all` and
+# not include-d at the top of this Makefile, because its 3v3 design and
+# multi-condition annotation need package-adapter handling that the swap
+# pipeline does not exercise. These aliases just recurse into the folder
+# Makefile so the user does not need to type `make -f Mix_of_Proteome/...`.
+# =============================================================================
+mix:
+	@$(MAKE) --no-print-directory -f Mix_of_Proteome/Makefile symlinks-mix prep-mix cells-mix
+
+# Diagnostics for mix are serialised for the same reason `diagnostics` is:
+# concurrent Quarto renders on the shared vignettes/diagnostics.qmd race.
+mix-diagnostics:
+	@$(MAKE) --no-print-directory -f Mix_of_Proteome/Makefile -j1 diag-mix
 
 
 # =============================================================================
