@@ -78,9 +78,19 @@ Raw Spectronaut report files from the archive are not removed by any of the
 
 #### Full rebuild from scratch
 
+The `make all` step takes hours, so detach it from the terminal and
+capture everything to `make.log`:
+
 ```bash
 make clean-prep
-make -j4 -k all
+
+# Long-running step: detached from terminal, stdout + stderr captured.
+nohup make -j4 -k all > make.log 2>&1 &
+
+# Watch progress live; Ctrl-C to detach (the build keeps running).
+tail -f make.log
+
+# Once `make all` has finished:
 make diagnostics
 make review-best-effort
 ```
@@ -91,38 +101,23 @@ Spectronaut symlinks intact. `-k` keeps the build going past known-failing
 cells (MSstats+ × quantile on some subsets, DEqMS × small × log2); without
 `-k` the strict `review` step would block on the first missing stamp.
 
+`nohup` keeps the job alive after logout / SSH disconnect; `> make.log`
+redirects stdout; `2>&1` redirects stderr to the same file; `&` runs in
+the background. `make.log` is git-ignored.
+
 `make diagnostics` is intentionally not part of `all` and runs sequentially
 (forces `-j1` internally), because every diagnostics target renders the
 same `vignettes/diagnostics.qmd` and concurrent Quarto invocations race on
 the shared `vignettes/.quarto/` scratch directory.
 
-#### Running long jobs in the background
-
-A full rebuild takes hours. Detach the build from the terminal and capture
-both stdout and stderr to a log file:
+#### Checking on a backgrounded run
 
 ```bash
-nohup make -j4 -k all > make.log 2>&1 &
+jobs                                  # if you stayed in the same shell
+ps -fp $(pgrep -f 'make -j')          # find the make process(es)
+tail -n 50 make.log                   # last 50 log lines (one-shot)
+tail -f make.log                      # follow live
 ```
-
-- `nohup` keeps the job alive after logout / SSH disconnect.
-- `> make.log` redirects stdout; `2>&1` redirects stderr to the same file.
-- `&` runs in the background.
-
-To watch progress live:
-
-```bash
-tail -f make.log
-```
-
-To check the job is still running:
-
-```bash
-jobs        # if you stayed in the same shell
-ps -fp $(pgrep -f 'make -j')
-```
-
-`make.log` is git-ignored.
 
 #### Publishing rendered vignettes to GitHub Pages
 
