@@ -1039,27 +1039,6 @@ makes the workflows more conservative for the Positive class, and the effect is
 particularly severe for variance-moderated workflows such as MaxLFQ+limma and
 limpa.
 
-The `msqrob2` rows in Tables 4 and 5 are outliers and should not be read as a
-general property of the benchmark. In these specific outputs, the exported
-`msqrob2` log fold changes collapse toward zero for both classes: the median
-absolute Positive log fold change is about 0.11 in `good_data` and 0.16 in
-`small_good_data`, whereas the other methods keep the expected Positive effect
-close to one log2 unit. The result is a nearly class-independent p-value
-distribution: many Negative proteins cross the raw p-value threshold, while
-most Positive proteins do not. This points to an `msqrob2` pipeline/output
-issue for the explicit sample-swap cells, not to a biological interpretation of
-the sample-swap design.
-
-```{r pvalue-hist-sample-swap-small-good, fig.cap="P-value distributions for rebuilt sample-swap small_good_data/log2. The dashed red line marks p = 0.05. The msqrob2 panel explains the outlying table row: its p-values are not clearly separated by the expected Positive effect.", fig.width=9, fig.height=6}
-collect_model_pvalues(
-  "CSF_Spectronaut_sample_swap",
-  "small_good_data",
-  "log2",
-  "sample_swap"
-) |>
-  plot_pvalue_histogram("Rebuilt sample-swap small_good_data/log2 p-value distributions")
-```
-
 # Protein-Swap Benchmark And Variance Check
 
 The protein-swap benchmark tests a different construction: rather than swapping
@@ -1074,9 +1053,6 @@ truth-list expectation included single-precursor proteins. I treat the current
 2,244-row list as the cleaner benchmark definition because single-precursor
 proteins cannot participate in the paired swap and are less reliable as
 benchmark Negatives.
-
-The protein-swap truth files are present, and several model grids are already
-available. Only the completed cells shown below are used for interpretation.
 
 The same diagnostic is shown below for the protein-swap `good_data` report.
 Here the data are read directly from
@@ -1127,7 +1103,7 @@ ggplot2::ggplot(
   ggplot2::geom_smooth(se = FALSE, method = "loess") +
   ggplot2::scale_colour_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
   ggplot2::labs(
-    title = "Mean-variance relationship in CSF_Spectronaut_protein_swap",
+    title = "Mean-variance relationship in the protein-swap benchmark",
     subtitle = "Direct report-derived protein/run summaries from good_data",
     x = "mean log2 intensity",
     y = "pooled within-condition SD",
@@ -1253,7 +1229,11 @@ label to different variance regimes.
 
 The following points are intended as inputs for the article and accompanying
 materials in `manuscript_materials_second_submission`, not as private notes on
-this reanalysis.
+this reanalysis. Items 1-5 are core asks tied to the variance-coupling concern
+and should be addressed for revision. Items 6-9 are constructive suggestions
+for the next version.
+
+## Core asks (variance-coupling concern)
 
 1. **Protein universe definition.** The manuscript-style CSF benchmark uses an
    1,820-protein truth list. The rebuilt sample-swap and protein-swap workflows
@@ -1287,6 +1267,9 @@ this reanalysis.
    class. The manuscript should clarify whether comparator methods are being
    evaluated under their normal best-practice workflows or under constraints
    imposed by the benchmark construction.
+
+## Additional suggestions for the next version
+
 6. **Comparator workflows and benchmark venue.** Because the manuscript makes a
    comparative method-performance claim, the authors should consider engaging
    with developers or maintainers of comparator workflows such as `msqrob2`,

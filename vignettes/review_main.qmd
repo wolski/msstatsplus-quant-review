@@ -7,11 +7,17 @@ format:
   pdf:
     toc: false
     number-sections: false
+    geometry:
+      - margin=1in
+    keep-tex: false
   html:
     self-contained: true
     toc: false
     number-sections: false
 ---
+
+*Conflict of interest: I am a developer of the `prolfqua` package, one of
+the comparator workflows discussed below and listed in the supplement.*
 
 Dear authors,
 
@@ -31,30 +37,30 @@ general differential-abundance modelling.
 
 In the CSF benchmark, the synthetic null proteins are constructed as
 within-condition mixtures of dilution levels, whereas the Positive proteins
-retain the original dilution comparison. Thus the ground-truth label becomes
-coupled to within-condition variance: Positives remain relatively clean
-dilution comparisons, while Negatives can have inflated within-condition
-variance because each condition contains a mixture of dilution levels for those
-proteins.
+retain the original dilution comparison. The ground-truth label thus becomes
+coupled to within-condition variance: Negatives carry inflated within-condition
+variance from the dilution mixture, while Positives remain relatively clean.
+Several comparator workflows use empirical-Bayes or related variance
+moderation, so a shared variance prior estimated from this class-imbalanced
+mixture can be pulled toward the Negative class and reduce sensitivity for
+the lower-variance Positive class. Table 1 therefore partly measures how each
+method responds to the sample-swap-induced variance asymmetry, and supports a
+narrower conclusion than currently stated: MSstats+ performs well on this
+specific sample-swap benchmark, but the table alone does not establish general
+superiority over established variance-moderated workflows in standard
+differential-abundance settings.
 
-This matters because several comparator workflows use empirical-Bayes or
-related variance moderation. A shared variance prior estimated from a
-class-imbalanced mixture can be influenced by the high-variance Negative class
-and can reduce sensitivity for the lower-variance Positive class. In this
-setting, Table 1 partly measures how each method responds to the
-sample-swap-induced variance asymmetry. Therefore Table 1 supports a narrower
-conclusion than currently stated: MSstats+ performs well on this specific
-sample-swap benchmark with induced anomalous runs, but the table alone does not
-establish general superiority over established variance-moderated workflows in
-standard differential-abundance settings.
+One might object that this variance coupling only reflects the natural
+behaviour of poor-quality runs, which is exactly what MSstats+ is designed to
+handle. That defence applies to the `all_data` benchmark, which mixes Neat,
+1:2, and higher-dilution Bad runs. It does not explain the `good_data`
+benchmark, which is restricted to clean Neat and 1:2 runs. The supplement
+variance figures on `good_data` show the same label-linked asymmetry, so the
+effect arises from the swap construction itself, not from including degraded
+runs.
 
-The p-value distributions provide an additional diagnostic warning. In a
-well-calibrated benchmark, p-values for true null proteins should be
-approximately uniform. In the CSF all_data benchmark, the distributions are
-strongly non-uniform across methods, with substantial mass near one and
-method-dependent spikes near zero. This pattern is not by itself a proof of the
-mechanism, but it is anomalous for a clean null and motivates inspecting the
-sample-swap construction and its induced H0/H1 variance structure.
+P-value distributions on the CSF `all_data` benchmark are non-uniform across
+methods, which is additional diagnostic evidence; see supplement §3.
 
 I recommend that the manuscript explicitly separate these claims. The
 K562/CSF benchmark can be presented as a stress test for longitudinal quality
@@ -91,8 +97,7 @@ replacement benchmarks. They are sensitivity checks showing that method rankings
 are sensitive to the benchmark construction and that the current Table 1 should
 be interpreted with this limitation in mind.
 
-In summary, the MSstats+ method may be useful and the K562/CSF benchmark is
-informative for a specific quality-degradation scenario. The manuscript should
-not, however, use this sample-swap benchmark as broad evidence that MSstats+
-generally outperforms established differential-abundance workflows unless the
-label-dependent variance issue is addressed directly.
+In summary, the Table 1 ranking depends on a benchmark construction that
+couples ground-truth class to within-condition variance; broader claims about
+general method performance should be supported by constructions where this
+coupling is absent.
