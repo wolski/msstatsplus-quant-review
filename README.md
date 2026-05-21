@@ -56,43 +56,66 @@ At the time this README was written, I could verify the public
 
 ### Makefile workflow
 
-Run commands from the repository root, i.e. from `quant/`.
-
-```bash
-make symlinks
-make prep
-make cells
-make diagnostics
-make review
-```
-
-The main targets are:
-
-- `make symlinks`: creates local symlinks from canonical short names such as
-  `Report.tsv` and `annotation.csv` to the raw archive filenames.
-- `make prep`: creates synthetic swap reports and subset directories. This is
-  where `all_data`, `good_data`, `small`, and `small_good_data` inputs are
-  generated.
-- `make cells`: runs model-fitting cells. Each cell corresponds to a benchmark
-  folder, subset, normalization, and method block.
-- `make diagnostics`: renders per-cell diagnostics once cell outputs exist.
-- `make review`: strict review render. This depends on all expected cell stamps.
-- `make review-best-effort`: renders the review against whatever cell outputs
-  are present, but still requires the prep outputs used as truth tables.
+Run commands from the repository root, i.e. from `quant/`. Run `make help`
+for the categorized list of available targets (pipeline, per-norm shortcuts,
+GitHub Pages, clean).
 
 The Makefile is deliberately non-recursive: the top-level `Makefile` includes
 the folder Makefiles, so `make -jN` can schedule independent cell blocks across
-folders. The comments at the top of `Makefile` describe practical parallelism
-settings. The clean targets are layered:
+folders. Each cell-block internally uses ~8 cores via MSstats, so practical
+choices are `-j 2` on a laptop (~16 cores) and `-j 4` on a workstation
+(~32 cores).
 
-- `make clean-models` removes model outputs and diagnostics.
-- `make clean-subsets` also removes generated subset directories and prep
-  stamps.
-- `make clean-prep` also removes generated swap reports and root-level swap
-  truth files.
+Raw Spectronaut report files from the archive are not removed by any of the
+`clean-*` targets.
 
-Raw Spectronaut report files from the archive are not removed by the clean
-targets.
+#### Full rebuild from scratch
+
+```bash
+make clean-prep
+make -j4 -k all
+```
+
+`clean-prep` removes every generated artefact (subsets, model outputs,
+synthetic swap reports, truth files, prep stamps) while keeping the raw
+Spectronaut symlinks intact. `-k` keeps the build going past known-failing
+cells (MSstats+ × quantile on some subsets, DEqMS × small × log2); without
+`-k` the strict `review` step would block on the first missing stamp. If
+you want a clean separation between "compute" and "report", run cells and
+diagnostics first and then render the review explicitly:
+
+```bash
+make -j4 cells diagnostics
+make review-best-effort
+```
+
+#### Running long jobs in the background
+
+A full rebuild takes hours. Detach the build from the terminal and capture
+both stdout and stderr to a log file:
+
+```bash
+nohup make -j4 -k all > make.log 2>&1 &
+```
+
+- `nohup` keeps the job alive after logout / SSH disconnect.
+- `> make.log` redirects stdout; `2>&1` redirects stderr to the same file.
+- `&` runs in the background.
+
+To watch progress live:
+
+```bash
+tail -f make.log
+```
+
+To check the job is still running:
+
+```bash
+jobs        # if you stayed in the same shell
+ps -fp $(pgrep -f 'make -j')
+```
+
+`make.log` is git-ignored.
 
 ### Reproducibility notes
 
