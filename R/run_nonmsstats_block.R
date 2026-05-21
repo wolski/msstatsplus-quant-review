@@ -5,9 +5,10 @@
 ## Usage:
 ##   Rscript R/run_nonmsstats_block.R <subset_dir> <normalization> [pkg1,pkg2,...]
 ##
-## Defaults to the fast non-MSstats packages: MaxLFQ_limma, DEqMS, prolfqua,
-## limpa. msqrob2 remains available when explicitly requested as the optional
-## third argument. Each package writes to <subset_dir>/<normalization>/swap/<pkg>/.
+## Defaults to the non-MSstats packages: MaxLFQ_limma, DEqMS, prolfqua, limpa,
+## msqrob2. Override by passing an explicit comma-separated package list as
+## the optional third argument. Each package writes to
+## <subset_dir>/<normalization>/swap/<pkg>/.
 ## Per-package failures are caught (tryCatch); other packages still run.
 ## The script exits non-zero if any requested package failed.
 
@@ -20,7 +21,7 @@ normalization <- args[[2]]
 pkgs <- if (length(args) == 3) {
   strsplit(args[[3]], ",", fixed = TRUE)[[1]]
 } else {
-  c("MaxLFQ_limma", "DEqMS", "prolfqua", "limpa")
+  c("MaxLFQ_limma", "DEqMS", "prolfqua", "limpa", "msqrob2")
 }
 
 suppressPackageStartupMessages(library(data.table))

@@ -46,7 +46,7 @@ CSF_Spectronaut/all_data/log2/swap/.stamp.msstats: CSF_Spectronaut/.prep.stamp $
 	touch $@
 
 CSF_Spectronaut/all_data/log2/swap/.stamp.bundle: CSF_Spectronaut/.prep.stamp $(AUTHORS_SCRIPTS)
-	cd CSF_Spectronaut && Rscript run_nonmsstats.R all_data
+	cd CSF_Spectronaut && RUN_MSQROB2=1 Rscript run_nonmsstats.R all_data
 	touch $@
 
 CSF_Spectronaut/good_data/log2/swap/.stamp.msstats: CSF_Spectronaut/.prep.stamp $(AUTHORS_SCRIPTS)
@@ -54,7 +54,7 @@ CSF_Spectronaut/good_data/log2/swap/.stamp.msstats: CSF_Spectronaut/.prep.stamp 
 	touch $@
 
 CSF_Spectronaut/good_data/log2/swap/.stamp.bundle: CSF_Spectronaut/.prep.stamp $(AUTHORS_SCRIPTS)
-	cd CSF_Spectronaut && Rscript run_nonmsstats.R good_data
+	cd CSF_Spectronaut && RUN_MSQROB2=1 Rscript run_nonmsstats.R good_data
 	touch $@
 
 

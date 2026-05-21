@@ -111,7 +111,7 @@ CSF_Spectronaut_protein_swap/small_good_data/quantile/swap/.stamp.msstats: CSF_S
 	touch $@
 
 
-# Bundle stamps (fast non-MSstats packages; msqrob2 skipped by default) -------
+# Bundle stamps (non-MSstats packages: MaxLFQ_limma, DEqMS, prolfqua, limpa, msqrob2)
 CSF_Spectronaut_protein_swap/all_data/log2/swap/.stamp.bundle: CSF_Spectronaut_protein_swap/.prep.stamp $(SCRIPTS)
 	Rscript R/run_nonmsstats_block.R CSF_Spectronaut_protein_swap/all_data log2
 	touch $@

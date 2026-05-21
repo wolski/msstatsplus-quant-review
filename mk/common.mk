@@ -13,7 +13,7 @@ PYTHON ?= $(if $(wildcard .venv/bin/python3),.venv/bin/python3,python3)
 # across all folders (touch propagates via Make's mtime check).
 SCRIPTS = R/run_cell.R R/run_nonmsstats_block.R \
           R/models_msstats.R R/models_maxlfq_limma.R R/models_deqms.R \
-          R/models_prolfqua.R R/models_limpa.R \
+          R/models_prolfqua.R R/models_limpa.R R/models_msqrob2.R \
           R/preprocess.R R/paths.R
 
 # Authors' scripts — referenced only by CSF_Spectronaut/Makefile cell rules.

@@ -1,6 +1,9 @@
 ## Non-MSstats runner for the original CSF Spectronaut publication benchmark.
 ## Methods: MaxLFQ + limma, limpa, DEqMS, prolfqua. Normalization is log2 only.
-## msqrob2 is skipped by default because it is slow; set RUN_MSQROB2=1 to run it.
+## msqrob2 is skipped by default in standalone invocations of this script
+## because it is slow; set RUN_MSQROB2=1 to run it. CSF_Spectronaut/Makefile
+## sets RUN_MSQROB2=1 automatically so msqrob2 is part of the standard
+## pipeline.
 
 suppressPackageStartupMessages({
   library(iq)
