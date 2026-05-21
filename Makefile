@@ -33,7 +33,7 @@ include CSF_Spectronaut_sample_swap/Makefile
 # include Mix_of_Proteome/Makefile
 
 
-.PHONY: all symlinks prep cells diagnostics review \
+.PHONY: help all symlinks prep cells diagnostics review \
         review-html review-pdf review-best-effort \
         render-vignettes gh-pages \
         clean clean-models clean-subsets clean-prep \
@@ -41,6 +41,36 @@ include CSF_Spectronaut_sample_swap/Makefile
         all_log2_swap \
         cells-log2 cells-median cells-quantile cells-log2-swap \
         diag-log2  diag-median  diag-quantile diag-log2-swap
+
+
+help:
+	@echo 'quant/Makefile — main targets (invoke from quant/):'
+	@echo
+	@echo 'Pipeline:'
+	@echo '  all                  symlinks + prep + cells + diagnostics + review'
+	@echo '  symlinks             canonical-name symlinks for raw inputs'
+	@echo '  prep                 build synthetic swap reports + subset dirs'
+	@echo '  cells                run all 26 model-fitting cell-blocks'
+	@echo '  diagnostics          render all per-cell diagnostics HTMLs'
+	@echo '  review               strict review render (requires all cell stamps)'
+	@echo '  review-best-effort   render review against whatever cell outputs exist'
+	@echo
+	@echo 'Per-norm shortcuts:'
+	@echo '  all_log2 | all_median | all_quantile'
+	@echo '  cells-{log2,median,quantile} | diag-{log2,median,quantile}'
+	@echo '  cells-csf | cells-ps | cells-ss | cells-mix (per-folder)'
+	@echo
+	@echo 'GitHub Pages (deliberately separate — chain explicitly):'
+	@echo '  render-vignettes     qmd -> html for vignettes/*.qmd'
+	@echo '  gh-pages             force-push staged HTML to orphan gh-pages branch'
+	@echo
+	@echo 'Clean (layered):'
+	@echo '  clean-models         remove model outputs + diagnostics'
+	@echo '  clean-subsets        also remove subset dirs + prep stamps'
+	@echo '  clean-prep           also remove swap reports + truth files'
+	@echo
+	@echo 'Parallelism: make -j 2 (laptop) / -j 4 (workstation).'
+	@echo 'See the header of Makefile and TODO/TODO_ghpages.md for detail.'
 
 
 all: symlinks prep cells diagnostics review
