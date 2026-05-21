@@ -32,8 +32,9 @@ At the time this README was written, I could verify the public
 ### Repository structure
 
 - `Makefile` is the top-level orchestration file. It includes all folder
-  Makefiles and exposes aggregate targets such as `prep`, `cells`,
-  `diagnostics`, and `review`.
+  Makefiles and exposes aggregate targets (`prep`, `cells`, `review`,
+  and the separately-invoked `diagnostics`, `render-vignettes`, `gh-pages`).
+  Run `make help` for the full list.
 - `mk/common.mk` defines shared variables, shared R helper dependencies, and
   the CSF raw-input symlink rules used by multiple benchmark folders.
 - `CSF_Spectronaut/` reproduces the authors' CSF Spectronaut benchmark branch.
@@ -44,15 +45,21 @@ At the time this README was written, I could verify the public
 - `CSF_Spectronaut_sample_swap/` builds a sample-swap benchmark directly from
   the CSF Spectronaut report and evaluates the same method grid.
 - `Mix_of_Proteome/` runs the controlled mixture-of-proteomes benchmark.
+  Currently excluded from the active pipeline pending DEqMS/msqrob2 tweaks
+  for its 3 vs 3 design; see the comment block at the top of `Makefile`.
 - `R/` contains the shared modelling code for MSstats, MSstats+, MaxLFQ+limma,
   DEqMS, msqrob2, prolfqua, limpa, normalization, timing, plotting, and
   comparison-table helpers.
-- `src/` contains Python utilities for generating synthetic swapped reports and
-  subset `Report.tsv`/`annotation.csv` directories.
-- `vignettes/` contains the Quarto review and diagnostics reports.
+- `src/` contains Python utilities for generating synthetic swapped reports
+  and subset `Report.tsv`/`annotation.csv` directories, plus the bash scripts
+  `render_vignettes.sh` and `publish_gh_pages.sh` that drive the GitHub
+  Pages workflow.
+- `vignettes/` contains the Quarto review, diagnostics, and `index.qmd`
+  landing page for the published site.
 - `results/` contains narrative notes and run summaries used during review.
-- `TODO/` contains working notes and discrepancy reports; it is not part of the
-  executable pipeline.
+- `TODO/` contains working notes and discrepancy reports; it is not part of
+  the executable pipeline. `TODO/TODO_ghpages.md` documents the publishing
+  pipeline design.
 
 ### Makefile workflow
 
@@ -116,6 +123,27 @@ ps -fp $(pgrep -f 'make -j')
 ```
 
 `make.log` is git-ignored.
+
+#### Publishing rendered vignettes to GitHub Pages
+
+The site at <https://wolski.github.io/msstatsplus-quant-review/> is served
+from the `gh-pages` branch of this repo. Rendering and publishing are
+deliberately separate so the publish step never touches `main` and can be
+re-run without re-rendering. From `quant/`:
+
+```bash
+make render-vignettes   # quarto-render the vignettes; outputs *.html in vignettes/
+make gh-pages           # force-push the staged HTMLs to origin/gh-pages
+```
+
+`render-vignettes` is best-effort: a single failed `.qmd` does not abort the
+others. `gh-pages` then verifies that every HTML it needs to publish exists
+on disk and aborts with a clear error if any are missing — it does not
+silently re-render. After the first push, enable Pages once via the repo
+Settings: *Pages → Build and deployment → Source: Deploy from a branch →
+Branch: `gh-pages` / `/ (root)`*.
+
+See `TODO/TODO_ghpages.md` for the pipeline design rationale.
 
 ### Reproducibility notes
 
