@@ -74,20 +74,20 @@ Raw Spectronaut report files from the archive are not removed by any of the
 ```bash
 make clean-prep
 make -j4 -k all
+make diagnostics
+make review-best-effort
 ```
 
 `clean-prep` removes every generated artefact (subsets, model outputs,
 synthetic swap reports, truth files, prep stamps) while keeping the raw
 Spectronaut symlinks intact. `-k` keeps the build going past known-failing
 cells (MSstats+ × quantile on some subsets, DEqMS × small × log2); without
-`-k` the strict `review` step would block on the first missing stamp. If
-you want a clean separation between "compute" and "report", run cells and
-diagnostics first and then render the review explicitly:
+`-k` the strict `review` step would block on the first missing stamp.
 
-```bash
-make -j4 cells diagnostics
-make review-best-effort
-```
+`make diagnostics` is intentionally not part of `all` and runs sequentially
+(forces `-j1` internally), because every diagnostics target renders the
+same `vignettes/diagnostics.qmd` and concurrent Quarto invocations race on
+the shared `vignettes/.quarto/` scratch directory.
 
 #### Running long jobs in the background
 

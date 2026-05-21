@@ -5,15 +5,20 @@
 # parallelism spans folders without any recursive-make magic.
 #
 # Invoke from quant/:
-#   make all                           # symlinks + prep + cells + diagnostics + review
+#   make all                           # symlinks + prep + cells + review
 #   make symlinks
 #   make prep                          # all four folders' prep
 #   make cells                         # all 26 cell-blocks
-#   make diagnostics                   # all 26 diagnostics HTMLs
+#   make diagnostics                   # all 26 diagnostics HTMLs (SERIAL; not in `all`)
 #   make review                        # review.html + review.pdf
 #   make review-best-effort            # render review against partial outputs
 #   make cells-csf | cells-protein-swap | cells-sample-swap  # one folder's cells (mix excluded)
 #   make clean-models | clean-subsets | clean-prep
+#
+# Why diagnostics is separate: every diag-* target renders the same
+# vignettes/diagnostics.qmd. Under parallel make those concurrent Quarto
+# invocations race on vignettes/.quarto/quarto-session-temp* and fail.
+# `make diagnostics` forces -j1 internally; run it after `make all`.
 #
 # Parallelism: each cell-block runs MSstats + MSstats+ + bundle sequentially
 # (MSstats internally uses 8 cores). Distinct cell-blocks run in parallel.
@@ -47,11 +52,11 @@ help:
 	@echo 'quant/Makefile — main targets (invoke from quant/):'
 	@echo
 	@echo 'Pipeline:'
-	@echo '  all                  symlinks + prep + cells + diagnostics + review'
+	@echo '  all                  symlinks + prep + cells + review (NOT diagnostics)'
 	@echo '  symlinks             canonical-name symlinks for raw inputs'
 	@echo '  prep                 build synthetic swap reports + subset dirs'
 	@echo '  cells                run all 26 model-fitting cell-blocks'
-	@echo '  diagnostics          render all per-cell diagnostics HTMLs'
+	@echo '  diagnostics          render per-cell diagnostics HTMLs (serial, run separately)'
 	@echo '  review               strict review render (requires all cell stamps)'
 	@echo '  review-best-effort   render review against whatever cell outputs exist'
 	@echo
@@ -73,7 +78,7 @@ help:
 	@echo 'See the header of Makefile and TODO/TODO_ghpages.md for detail.'
 
 
-all: symlinks prep cells diagnostics review
+all: symlinks prep cells review
 
 
 # =============================================================================
@@ -109,9 +114,9 @@ diag-quantile: \
     diag-ps-all_data-quantile  diag-ps-good_data-quantile  diag-ps-small-quantile  diag-ps-small_good-quantile \
     diag-ss-all_data-quantile  diag-ss-good_data-quantile  diag-ss-small_good-quantile
 
-all_log2:     symlinks prep cells-log2     diag-log2     review-best-effort
-all_median:   symlinks prep cells-median   diag-median   review-best-effort
-all_quantile: symlinks prep cells-quantile diag-quantile review-best-effort
+all_log2:     symlinks prep cells-log2     review-best-effort
+all_median:   symlinks prep cells-median   review-best-effort
+all_quantile: symlinks prep cells-quantile review-best-effort
 
 # Swap-folders only (drops CSF_Spectronaut authors' replication).
 # CSF is log2-only, so all_median / all_quantile already exclude it — only the
@@ -124,7 +129,7 @@ diag-log2-swap: \
     diag-ps-all_data-log2   diag-ps-good_data-log2   diag-ps-small-log2   diag-ps-small_good-log2 \
     diag-ss-all_data-log2   diag-ss-good_data-log2   diag-ss-small_good-log2
 
-all_log2_swap: symlinks-csf prep-protein-swap prep-sample-swap cells-log2-swap diag-log2-swap review-best-effort
+all_log2_swap: symlinks-csf prep-protein-swap prep-sample-swap cells-log2-swap review-best-effort
 
 
 # =============================================================================
@@ -139,7 +144,18 @@ symlinks: symlinks-csf
 # =============================================================================
 prep:        prep-csf prep-protein-swap prep-sample-swap     # prep-mix excluded
 cells:       cells-csf cells-protein-swap cells-sample-swap  # cells-mix excluded
-diagnostics: diag-csf  diag-protein-swap  diag-sample-swap   # diag-mix excluded
+
+# Diagnostics rendering is intentionally NOT part of `all` and is serialised
+# via a recursive -j1 call. Reason: every diag-* target invokes
+# `quarto render vignettes/diagnostics.qmd ...` on the same source file. Under
+# parallel make (-jN, N>1) these concurrent invocations race on the shared
+# `vignettes/.quarto/quarto-session-temp*` scratch directories and fail with
+# "cannot open file 'diagnostics.qmd'" / "lstat ... session-temp ... .css".
+# Forcing -j1 here keeps per-cell dependency tracking (the per-folder
+# diag-*-*-* rules still know which .stamp.bundle they depend on) while
+# guaranteeing one Quarto invocation at a time.
+diagnostics:
+	@$(MAKE) --no-print-directory -j1 diag-csf diag-protein-swap diag-sample-swap   # diag-mix excluded
 
 
 # =============================================================================
