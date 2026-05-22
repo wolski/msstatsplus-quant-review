@@ -24,7 +24,7 @@ include mk/common.mk
 prep-protein-swap: CSF_Spectronaut_protein_swap/.prep.stamp
 
 CSF_Spectronaut_protein_swap/.prep.stamp: CSF_Spectronaut/Report.tsv CSF_Spectronaut/annotation.csv src/swap_spectronaut_report.py src/build_subsets.py
-	$(PYTHON) src/swap_spectronaut_report.py --report CSF_Spectronaut/Report.tsv --annotation CSF_Spectronaut/annotation.csv --out-dir CSF_Spectronaut_protein_swap --swap-fraction 0.05 --target-log2fc-min 1.4 --target-log2fc-max 1.8 --seed 42
+	$(PYTHON) src/swap_spectronaut_report.py --report CSF_Spectronaut/Report.tsv --annotation CSF_Spectronaut/annotation.csv --out-dir CSF_Spectronaut_protein_swap --swap-fraction 0.05 --min-precursors 2 --min-log2fc 0.5 --seed 42
 	$(PYTHON) src/build_subsets.py --report CSF_Spectronaut_protein_swap/Report.tsv --annotation CSF_Spectronaut_protein_swap/annotation.csv --out-dir CSF_Spectronaut_protein_swap --subsets all_data good_data small small_good_data --good-rule neat_only
 	touch $@
 
