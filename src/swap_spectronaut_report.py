@@ -43,9 +43,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--annotation", required=True, type=Path)
     p.add_argument("--out-dir", required=True, type=Path)
     p.add_argument("--swap-fraction", type=float, default=0.05,
-                   help="Fraction of proteins to draw from each abundance tail.")
-    p.add_argument("--target-log2fc-min", type=float, default=1.4)
-    p.add_argument("--target-log2fc-max", type=float, default=1.8)
+                   help="Fraction of proteins to make Positive pair members. "
+                        "target_n_pairs = round(swap_fraction * n_proteins).")
+    p.add_argument("--min-precursors", type=int, default=2,
+                   help="Drop proteins with fewer precursors than this from "
+                        "the entire eligible universe (Positives and Negatives).")
+    p.add_argument("--min-log2fc", type=float, default=0.5,
+                   help="Minimum |log2(prot_mean_hi/prot_mean_lo)| a pair must "
+                        "exceed; no upper bound. The pair-builder prefers pairs "
+                        "closest to this minimum and expands outward as needed.")
     p.add_argument("--blank-condition", default="blank",
                    help="R.Condition value identifying blank runs (excluded from stats and output groups).")
     p.add_argument("--seed", type=int, default=42)
@@ -73,8 +79,14 @@ def load_report(path: Path) -> pl.DataFrame:
 # Step 1 — per-protein statistics on the reference set
 # ---------------------------------------------------------------------------
 
-def compute_protein_stats(df: pl.DataFrame, blank_cond: str) -> pl.DataFrame:
-    """One row per protein with prot_mean_log2, n_precursors, n_peptides."""
+def compute_protein_stats(df: pl.DataFrame, blank_cond: str,
+                            min_precursors: int = 2) -> pl.DataFrame:
+    """One row per protein with prot_mean_log2, n_precursors, n_peptides.
+
+    Proteins with `n_precursors < min_precursors` are dropped from the
+    eligible universe entirely (so they are neither Positives nor
+    Negatives in the downstream swap_list).
+    """
     df_ref = df.filter(pl.col(COL_COND) != blank_cond)
 
     # Mean precursor intensity (over runs) per (protein, precursor)
@@ -101,7 +113,7 @@ def compute_protein_stats(df: pl.DataFrame, blank_cond: str) -> pl.DataFrame:
                      n_precursors=pl.col(COL_PREC).n_unique(),
                  )
                  .join(n_peptides, on=COL_PG, how="inner")
-                 .filter(pl.col("n_precursors") >= 2)
+                 .filter(pl.col("n_precursors") >= min_precursors)
     )
     return prot_stats, prec_mean, pep_mean
 
@@ -113,17 +125,31 @@ def compute_protein_stats(df: pl.DataFrame, blank_cond: str) -> pl.DataFrame:
 def build_pairs(
     prot_stats: pl.DataFrame,
     swap_fraction: float,
-    log2fc_min: float,
-    log2fc_max: float,
+    min_log2fc: float,
     seed: int,
 ) -> pl.DataFrame:
-    """Pair proteins across the full abundance distribution.
+    """Stratified-by-`n_precursors` greedy pair selection.
 
-    Each pair (high, low) has matching `n_precursors` and `prot_mean_log2_hi -
-    prot_mean_log2_lo ∈ [log2fc_min, log2fc_max]`. We greedy-match to obtain
-    up to `target_n_pairs = round(swap_fraction * n_proteins)` non-overlapping
-    pairs, sorted to prefer FC near the window center and small peptide-count
-    mismatch.
+    For each distinct `n_precursors` value (processed high → low), this
+    routine targets `round(swap_fraction * bin_pop)` pairs, where
+    `bin_pop` is the number of proteins with that `n_precursors` in
+    `prot_stats`. Within each bin, candidates are sorted by:
+
+        1. (log2fc - min_log2fc) ascending — pairs closest to the
+           minimum-effect threshold are picked first, then the matcher
+           expands outward through larger log2fc as needed.
+        2. abs(n_peptides_hi - n_peptides_lo) ascending — prefer pairs
+           with similar peptide counts as a tiebreaker.
+
+    Any quota a bin cannot fill (no FC-eligible candidates whose two
+    proteins are still unused) **spills down** to the next bin
+    immediately below. This keeps the Positive `n_precursors`
+    distribution proportional to the protein-universe distribution in
+    expectation, while keeping the total pair count close to
+    `round(swap_fraction * n_proteins)`.
+
+    Bin candidates are pre-shuffled with `seed` so that equal-quality
+    rows are picked uniformly within ties.
     """
     n_proteins = prot_stats.height
     target_n_pairs = max(1, round(swap_fraction * n_proteins))
@@ -137,35 +163,59 @@ def build_pairs(
         left.join(right, on="n_precursors", how="inner")
             .filter(pl.col(f"{COL_PG}_hi") != pl.col(f"{COL_PG}_lo"))
             .with_columns(log2fc=pl.col("prot_mean_log2_hi") - pl.col("prot_mean_log2_lo"))
-            .filter(pl.col("log2fc").is_between(log2fc_min, log2fc_max))
+            .filter(pl.col("log2fc") >= min_log2fc)
             .with_columns(
                 pep_count_diff=(pl.col("n_peptides_hi") - pl.col("n_peptides_lo")).abs(),
-                fc_distance=(pl.col("log2fc") - (log2fc_min + log2fc_max) / 2).abs(),
+                fc_above_min=pl.col("log2fc") - min_log2fc,
             )
-            # Random shuffle first so equal-quality candidates are picked uniformly
-            # across the abundance distribution, then sort by quality.
-            .sample(fraction=1.0, shuffle=True, seed=seed)
-            .sort(["pep_count_diff", "fc_distance"])
     )
-    print(f"[pairs] {candidates.height} candidate ordered pairs in FC window",
-          file=sys.stderr)
+    print(f"[pairs] {candidates.height} candidate ordered pairs with log2fc >= "
+          f"{min_log2fc}", file=sys.stderr)
+
+    # Per-n_precursors bin populations (count proteins, NOT candidate rows).
+    bin_pop = (prot_stats.group_by("n_precursors")
+                          .agg(pl.len().alias("bin_pop"))
+                          .sort("n_precursors", descending=True))
 
     used: set[str] = set()
-    rows = []
-    for row in candidates.iter_rows(named=True):
-        a, b = row[f"{COL_PG}_hi"], row[f"{COL_PG}_lo"]
-        if a in used or b in used:
-            continue
-        used.add(a); used.add(b)
-        rows.append(row)
-        if len(rows) >= target_n_pairs:
-            break
+    rows: list[dict] = []
+    spill = 0
+    for bin_row in bin_pop.iter_rows(named=True):
+        n = bin_row["n_precursors"]
+        pop = bin_row["bin_pop"]
+        bin_quota_self = int(round(swap_fraction * pop))
+        bin_quota = bin_quota_self + spill
+
+        # Candidates restricted to this n_precursors bin; shuffle for tie-break,
+        # then sort so the smallest-fc-above-min comes first.
+        bin_cands = (
+            candidates.filter(pl.col("n_precursors") == n)
+                       .sample(fraction=1.0, shuffle=True, seed=seed)
+                       .sort(["fc_above_min", "pep_count_diff"])
+        )
+
+        filled = 0
+        for row in bin_cands.iter_rows(named=True):
+            a, b = row[f"{COL_PG}_hi"], row[f"{COL_PG}_lo"]
+            if a in used or b in used:
+                continue
+            used.add(a); used.add(b)
+            rows.append(row)
+            filled += 1
+            if filled >= bin_quota:
+                break
+
+        unmet = max(0, bin_quota - filled)
+        print(f"[pairs]   n_precursors={n:>3}  bin_pop={pop:>5}  "
+              f"quota={bin_quota_self}+spill={spill}={bin_quota}  "
+              f"filled={filled}  spill_out={unmet}", file=sys.stderr)
+        spill = unmet
 
     if not rows:
         return pl.DataFrame()
     pairs = pl.DataFrame(rows).with_row_index(name="pair_id")
-    print(f"[pairs] {pairs.height} matched pairs after greedy bipartite selection",
-          file=sys.stderr)
+    print(f"[pairs] {pairs.height} matched pairs after stratified selection "
+          f"(trailing unmet spill: {spill})", file=sys.stderr)
     return pairs
 
 
@@ -454,6 +504,70 @@ def build_ground_truth(
 
 
 # ---------------------------------------------------------------------------
+# End-of-run summary log
+# ---------------------------------------------------------------------------
+
+def summary_log(df_swapped: pl.DataFrame,
+                  groups: pl.DataFrame,
+                  swap_list: pl.DataFrame,
+                  pairs: pl.DataFrame,
+                  blank_cond: str) -> None:
+    """Print a one-line-per-metric summary to stderr.
+
+    Reports n_TP, n_TN, median |log2FC| over selected pairs, and the
+    median within-G1 / within-G2 SD of log2 protein mean intensity
+    for TP and TN proteins. SDs are computed on the **whole** swapped
+    `Report.tsv` universe (no good_data filtering), per the user's
+    spec in `TODO/TODO_updated_swap.md`.
+    """
+    n_tp = int(swap_list.filter(pl.col("Label") == "Positive").height)
+    n_tn = int(swap_list.filter(pl.col("Label") == "Negative").height)
+    median_log2fc = float(pairs["log2fc"].median())
+
+    # Aggregate fragment-level FG.Quantity to one (Run, Protein) log2 value.
+    pld = (
+        df_swapped.filter(pl.col(COL_COND) != blank_cond)
+                   .filter(pl.col("FG.Quantity").is_not_null())
+                   .filter(pl.col("FG.Quantity") > 0)
+                   .group_by([COL_RUN, COL_PG, COL_PREC])
+                   .agg(pl.col("FG.Quantity").first())  # precursor-level, constant
+                   .group_by([COL_RUN, COL_PG])
+                   .agg(log2I=pl.col("FG.Quantity").log(2).mean())
+    )
+    pld_g = pld.join(groups.select(COL_RUN, "group"), on=COL_RUN, how="inner")
+    pld_lab = pld_g.join(swap_list.rename({"Protein": COL_PG}), on=COL_PG, how="inner")
+
+    sd_per_prot = (
+        pld_lab.group_by([COL_PG, "Label", "group"])
+                .agg(sd_log=pl.col("log2I").std(), n=pl.len())
+                .filter(pl.col("n") >= 2)
+    )
+
+    def med(label: str, g: str) -> float:
+        s = sd_per_prot.filter(
+            (pl.col("Label") == label) & (pl.col("group") == g)
+        )["sd_log"]
+        if s.len() == 0:
+            return float("nan")
+        return float(s.median())
+
+    sd_tp_g1 = med("Positive", "G1")
+    sd_tp_g2 = med("Positive", "G2")
+    sd_tn_g1 = med("Negative", "G1")
+    sd_tn_g2 = med("Negative", "G2")
+
+    print("", file=sys.stderr)
+    print(f"[summary] n_TP                       = {n_tp}", file=sys.stderr)
+    print(f"[summary] n_TN                       = {n_tn}", file=sys.stderr)
+    print(f"[summary] target |log2FC|, median    = {median_log2fc:.3f}",
+          file=sys.stderr)
+    print(f"[summary] within-G1 SD of TP, median = {sd_tp_g1:.3f}", file=sys.stderr)
+    print(f"[summary] within-G2 SD of TP, median = {sd_tp_g2:.3f}", file=sys.stderr)
+    print(f"[summary] within-G1 SD of TN, median = {sd_tn_g1:.3f}", file=sys.stderr)
+    print(f"[summary] within-G2 SD of TN, median = {sd_tn_g2:.3f}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -471,15 +585,17 @@ def main() -> int:
     original_cols = df.columns
     original_rows = df.height
 
-    prot_stats, prec_mean, pep_mean = compute_protein_stats(df, args.blank_condition)
-    print(f"[stats] {prot_stats.height} proteins after n_precursors >= 2 filter",
-          file=sys.stderr)
+    prot_stats, prec_mean, pep_mean = compute_protein_stats(
+        df, args.blank_condition, min_precursors=args.min_precursors,
+    )
+    print(f"[stats] {prot_stats.height} proteins after n_precursors >= "
+          f"{args.min_precursors} filter", file=sys.stderr)
 
     pairs = build_pairs(prot_stats, args.swap_fraction,
-                        args.target_log2fc_min, args.target_log2fc_max, args.seed)
+                        args.min_log2fc, args.seed)
     if pairs.height == 0:
-        print("[error] no pairs survived selection — adjust quantiles or FC window",
-              file=sys.stderr)
+        print("[error] no pairs survived selection — adjust --min-log2fc or "
+              "--min-precursors", file=sys.stderr)
         return 1
 
     prec_match, dropped_precursors = build_rank_pairs(pairs, prec_mean, COL_PREC, "prec_mean")
@@ -557,6 +673,11 @@ def main() -> int:
     out_swap_list = args.out_dir / "CSF_protein_swap_list.csv"
     print(f"[write] {out_swap_list}", file=sys.stderr)
     swap_list.write_csv(out_swap_list)
+
+    # End-of-run summary: TP/TN counts, median |log2FC|, median
+    # within-group SDs for TP and TN. Computed on the swapped report
+    # universe (whole Report.tsv, not the good_data subset).
+    summary_log(df_swapped, groups, swap_list, pairs, args.blank_condition)
 
     return 0
 

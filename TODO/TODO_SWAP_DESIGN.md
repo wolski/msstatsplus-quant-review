@@ -1,14 +1,18 @@
 # Gold-standard precursor-intensity swap — algorithmic plan (polars)
 
-> **Status (2026-05-22).** This document is the historical algorithmic plan
-> that `src/swap_spectronaut_report.py` was built from. It has been edited
-> in place to **match the actual implementation**. Sections that describe
-> an idea that did not survive contact with the data (the quantile-based
-> abundance pools in former Step 2) are flagged "DROPPED" with a note on
-> why. New behaviour that the script does but the plan did not anticipate
-> (annotation Condition rewrite, `CSF_protein_swap_list.csv`) is added.
-> The CLI block, file paths, and "Decisions captured" reflect the actual
-> argparse and output layout.
+> **Status (2026-05-22, second revision).** This document is the historical
+> algorithmic plan that `src/swap_spectronaut_report.py` was built from. It
+> has been edited in place to **match the actual implementation**. Sections
+> that describe an idea that did not survive contact with the data (the
+> quantile-based abundance pools in former Step 2) are flagged "DROPPED"
+> with a note on why. The pair-builder is now **stratified by
+> `n_precursors` with spill-over and a smallest-fc-first selection**;
+> Step 3 and Step 4 below describe this design. The matching CLI was
+> simplified from `--target-log2fc-min/--target-log2fc-max` to a single
+> `--min-log2fc` (no upper bound) and gained `--min-precursors`. End-of-run
+> the script emits a summary block (TP/TN counts, median |log2FC|, and
+> within-G1/G2 SD medians for TP and TN). See
+> [`TODO/TODO_updated_swap.md`](TODO_updated_swap.md) for the revision plan.
 
 ## Context
 
@@ -135,17 +139,17 @@ df_candidates = (
     left.join(right, on="n_precursors", how="inner")
         .filter(pl.col("PG.ProteinGroups_hi") != pl.col("PG.ProteinGroups_lo"))
         .with_columns(log2fc = pl.col("prot_mean_log2_hi") - pl.col("prot_mean_log2_lo"))
-        .filter(pl.col("log2fc").is_between(log2fc_min, log2fc_max))
+        .filter(pl.col("log2fc") >= min_log2fc)                  # no upper bound
         .with_columns(
             pep_count_diff = (pl.col("n_peptides_hi") - pl.col("n_peptides_lo")).abs(),
-            fc_distance    = (pl.col("log2fc") - (log2fc_min + log2fc_max) / 2).abs(),
+            fc_above_min   = pl.col("log2fc") - min_log2fc,      # 0 at threshold
         )
 )
 ```
 
 `df_candidates` columns: `PG.ProteinGroups_hi, PG.ProteinGroups_lo,
 n_precursors, n_peptides_hi, n_peptides_lo, pep_count_diff,
-prot_mean_log2_hi, prot_mean_log2_lo, log2fc, fc_distance`.
+prot_mean_log2_hi, prot_mean_log2_lo, log2fc, fc_above_min`.
 
 Note: the self-join makes the same unordered pair appear twice (once with A
 on the left, once with B on the left). The greedy matcher below handles this
@@ -159,36 +163,48 @@ protein used at most once) of size approximately
 `swap_fraction × n_proteins_total / 2`.
 
 ```
-# Random shuffle first so equal-quality candidates are picked uniformly
-# across the abundance distribution, then sort by quality.
-df_candidates_sorted = (
-    df_candidates
-        .sample(fraction=1.0, shuffle=True, seed=seed)
-        .sort(["pep_count_diff", "fc_distance"])
-)
+# Stratified-by-n_precursors selection with spill-over.
+bin_pop = (prot_stats.group_by("n_precursors")
+                      .agg(pl.len().alias("bin_pop"))
+                      .sort("n_precursors", descending=True))
 
-used: set[str] = set()       # single set; protein can be used at most once,
-                              # regardless of which side
-rows = []
-for row in df_candidates_sorted.iter_rows(named=True):
-    a, b = row["PG.ProteinGroups_hi"], row["PG.ProteinGroups_lo"]
-    if a in used or b in used:
-        continue
-    used.add(a); used.add(b)
-    rows.append(row)
-    if len(rows) >= target_n_pairs:
-        break
+used: set[str] = set()
+rows: list[dict] = []
+spill = 0
+for bin_row in bin_pop.iter_rows(named=True):
+    n = bin_row["n_precursors"]
+    bin_quota_self = round(swap_fraction * bin_row["bin_pop"])
+    bin_quota = bin_quota_self + spill                       # carry from above
+    bin_cands = (df_candidates.filter(pl.col("n_precursors") == n)
+                              .sample(fraction=1.0, shuffle=True, seed=seed)
+                              .sort(["fc_above_min", "pep_count_diff"]))
+    filled = 0
+    for row in bin_cands.iter_rows(named=True):
+        a, b = row["PG.ProteinGroups_hi"], row["PG.ProteinGroups_lo"]
+        if a in used or b in used:
+            continue
+        used.add(a); used.add(b)
+        rows.append(row)
+        filled += 1
+        if filled >= bin_quota:
+            break
+    spill = max(0, bin_quota - filled)                       # unmet rolls down
 
 df_pairs = pl.DataFrame(rows).with_row_index(name="pair_id")
 ```
 
-Target size: `target_n_pairs = max(1, round(swap_fraction * n_proteins))`,
-not a hard cap on the candidate side as the plan originally framed it.
+Per-bin quota is proportional to the bin's protein population so the
+Positive `n_precursors` distribution matches the universe distribution
+in expectation. Bins are processed high → low; quotas a bin can't fill
+spill into the next bin below. Inside a bin, the matcher prefers pairs
+near the **minimum-effect threshold** (smallest `fc_above_min` first)
+so the benchmark stresses methods at the detection boundary rather than
+at a hand-picked midpoint.
 
-> **Fallback (±20 % precursor-count tolerance) — DROPPED.** The plan
-> sketched an inequality-join fallback when the exact-`n_precursors` pool
-> ran dry. The implementation does not include it; `n_precursors` is
-> always an exact match. There is no `match_kind` column on `df_pairs`.
+> **Quantile-based abundance pools (former Step 2) and the ±20 %
+> precursor-count fallback — DROPPED.** Neither survived contact with
+> the data; the current matcher uses exact `n_precursors` and a
+> single-sided `log2fc >= min_log2fc` filter with spill-over instead.
 
 ### Step 5 — Build precursor-rank and peptide-rank tables for each pair
 
@@ -382,19 +398,21 @@ python src/swap_spectronaut_report.py \
   --annotation      <annotation.csv> \
   --out-dir         <dir> \
   --swap-fraction   0.05 \
-  --target-log2fc-min 1.4 \
-  --target-log2fc-max 1.8 \
+  --min-precursors  2 \
+  --min-log2fc      0.5 \
   --blank-condition blank \
   --seed            42
 ```
 
 > Removed vs the original plan: `--reference-dilution`,
 > `--abundance-quantile-high`, `--abundance-quantile-low`,
-> `--precursor-count-tol`. The implementation pools **all non-blank
-> dilutions** as the reference set (no `--reference-dilution` knob),
-> pairs across the **full abundance distribution** (no quantile knobs),
-> and uses **exact `n_precursors` matching** with no inequality fallback
-> (no tol knob).
+> `--precursor-count-tol`, plus the symmetric `--target-log2fc-min` /
+> `--target-log2fc-max` (replaced with a single one-sided `--min-log2fc`).
+> Added: `--min-precursors` (default 2) which sets the universe filter
+> in `compute_protein_stats`, and `--min-log2fc` (default 0.5) which
+> sets the lower-bound of the candidate filter in `build_pairs` (the
+> matcher prefers pairs nearest this threshold and expands outward
+> through larger log2fc as needed).
 
 ## Decisions captured
 
@@ -404,11 +422,29 @@ python src/swap_spectronaut_report.py \
   `target_n_pairs = max(1, round(swap_fraction * n_proteins))`. Pairs
   are drawn from the **full abundance distribution**, not from quantile
   tails.
-- **Matching constraint:** equal `n_precursors` (exact); peptide counts
-  may differ and surplus peptides are dropped from the output.
+- **Universe filter:** `--min-precursors` (default 2). Proteins with
+  fewer precursors than this are dropped from the eligible universe
+  upstream of pair selection and are absent from both the Positive and
+  Negative labels in the output `CSF_protein_swap_list.csv`.
+- **Matching constraint:** equal `n_precursors` (exact). Pair builder
+  uses **per-`n_precursors`-bin quotas** processed high → low, with
+  unmet quota spilling down into the next bin. Per-bin quotas are
+  `round(swap_fraction × bin_pop)`. This makes the Positive
+  `n_precursors` distribution proportional to the universe distribution
+  (in expectation).
+- **FC selection:** `--min-log2fc` (default 0.5) is the only FC knob —
+  no upper bound. Inside a bin, the matcher sorts candidates by
+  `(fc_above_min, pep_count_diff)` so pairs near the minimum effect
+  size are picked first; the matcher expands outward through larger
+  log2fc until the bin quota is met or candidates are exhausted.
 - **Fragment ion identity:** ignored. Fragment intensities swapped
   rank-for-rank within each (precursor, run), with surplus fragment rows
   dropped — consistent with the precursor/peptide drop rule.
+- **End-of-run summary log:** the script writes a stderr block with
+  `n_TP`, `n_TN`, median target |log2FC|, and the within-G1 / within-G2
+  SD medians of TP and TN proteins computed on the whole `Report.tsv`
+  universe. Lets the user verify the matching distribution without
+  re-running any vignette.
 
 ## Known limitations (carry over to the next iteration)
 

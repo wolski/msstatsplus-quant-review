@@ -579,6 +579,20 @@ by abundance**, so the Positive abundance distribution overlaps the
 Negative distribution heavily; the n_precursors constraint is what
 shapes the selection.
 
+> **Follow-up fix landed in
+> [`TODO/TODO_updated_swap.md`](../TODO/TODO_updated_swap.md).** The
+> pair-builder is now stratified by `n_precursors` with per-bin quotas
+> and spill-over so the Positive `n_precursors` distribution matches
+> the universe distribution in expectation. After re-running
+> `make clean-prep` (protein-swap folder) and `make prep-protein-swap`
+> with the new build, this table should show Positive and Negative
+> `median_n_precursors` **close together**, and the G2-only SD density
+> panel above should show the Positive and Negative densities
+> **overlap** (modulo the small residual driven by the surviving
+> ~1.25-log2 abundance correlation). The end-of-run `[summary]` block
+> emitted by `src/swap_spectronaut_report.py` reports the same numbers
+> directly to stderr without needing this vignette.
+
 ### Implications for reading the review figures
 
 - The "Positives have higher within-condition SD" pattern seen in
