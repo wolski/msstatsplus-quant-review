@@ -277,3 +277,166 @@ ggplot(prec_long,
 If you see a blue dot still sitting high on the right (or a red dot
 still sitting low) in a given sample, that precursor's partner was
 absent from that run and the swap had nothing to substitute in.
+
+## Verification: each swapped precursor carries its partner's old value
+
+What does it mean for the swap to "preserve intensities and only change
+labels"? The right way to phrase it is: for each precursor in a G2 run,
+the script writes that row's intensity columns to the **rank-aligned
+partner precursor's pre-swap intensity** in the same run, so the
+mapping is
+
+`FG.Quantity[Run R, partner-of-P, post-swap] == FG.Quantity[Run R, P, pre-swap]`
+
+whenever the partner's pre-swap value is non-null. (When the partner's
+pre-swap value is NaN the script can't substitute it, so the original
+stays — see the NaN edge case below.)
+
+The plot below pulls `FG.Quantity` directly from the two Spectronaut
+TSVs (pre- and post-swap), reconstructs the rank-aligned partner mapping
+the same way [`src/swap_spectronaut_report.py`](../src/swap_spectronaut_report.py)
+does (rank precursors within each protein by mean intensity over the
+non-blank reference set, then pair by rank inside each protein pair),
+and for every (G2 run × precursor) plots **the precursor's
+post-swap value against its rank-aligned partner's pre-swap value**.
+Points should sit exactly on `y = x`. Any deviation is either the
+NaN-partner edge case (the original was kept) or a genuine bug.
+
+```{r g2-verify-load, cache=TRUE}
+# Read FG.Quantity from both Spectronaut TSVs. Filter immediately to the
+# 10 proteins of interest to keep memory bounded. Cached because the
+# input TSVs are multi-GB and rendering would otherwise be slow.
+report_before_path <- file.path(base_dir, "CSF_Spectronaut/Report.tsv")
+report_after_path  <- file.path(base_dir, "CSF_Spectronaut_protein_swap/Report.tsv")
+report_cols <- c("R.FileName", "R.Condition",
+                 "PG.ProteinGroups", "EG.PrecursorId", "FG.Quantity")
+report_before <- fread(report_before_path, select = report_cols)
+report_after  <- fread(report_after_path,  select = report_cols)
+report_before <- unique(report_before[PG.ProteinGroups %in% target_proteins])
+report_after  <- unique(report_after[ PG.ProteinGroups %in% target_proteins])
+```
+
+```{r g2-verify-build, fig.cap="Verification of the swap mechanism. For each precursor in each G2 run, x = its rank-aligned partner's pre-swap FG.Quantity, y = its own post-swap FG.Quantity. Cases where the partner's pre-swap value was NaN are not plotted (no x to plot against) and are counted separately in the subtitle.", fig.height=8, fig.width=11}
+# Reference-set ranks (mirror the swap script: rank by mean FG.Quantity over
+# non-blank R.Condition, descending, within each protein).
+ref_means <- report_before[R.Condition != "blank" & !is.na(FG.Quantity),
+                           .(prec_mean = mean(FG.Quantity)),
+                           by = .(PG.ProteinGroups, EG.PrecursorId)]
+ref_means[, ref_rank := rank(-prec_mean, ties.method = "first"),
+           by = PG.ProteinGroups]
+
+# Per-pair, per-rank: pair member precursors.
+hi_ranks <- merge(
+  pairs5[, .(pair_id, PG.ProteinGroups = PG_high)],
+  ref_means, by = "PG.ProteinGroups", all.x = TRUE)[
+    , .(pair_id, hi_prec = EG.PrecursorId, ref_rank)]
+lo_ranks <- merge(
+  pairs5[, .(pair_id, PG.ProteinGroups = PG_low)],
+  ref_means, by = "PG.ProteinGroups", all.x = TRUE)[
+    , .(pair_id, lo_prec = EG.PrecursorId, ref_rank)]
+rank_pairs <- merge(hi_ranks, lo_ranks, by = c("pair_id", "ref_rank"))
+
+# Per (Run, Precursor) pre- and post-swap FG.Quantity.
+pre <- report_before[, .(R.FileName, EG.PrecursorId, fg_before = FG.Quantity)]
+post <- report_after[,  .(R.FileName, EG.PrecursorId, fg_after  = FG.Quantity)]
+
+# Materialise the two directional comparisons:
+#   HIGH partner: self.after vs partner-LOW.before
+#   LOW partner: self.after vs partner-HIGH.before
+build_side <- function(side) {
+  self_prec    <- if (side == "HIGH") "hi_prec" else "lo_prec"
+  partner_prec <- if (side == "HIGH") "lo_prec" else "hi_prec"
+  rp <- copy(rank_pairs)
+  setnames(rp, c(self_prec, partner_prec), c("self_prec", "partner_prec"))
+  g2_full <- CJ(R.FileName = g2_runs, rp_idx = seq_len(nrow(rp)))
+  g2_full[, `:=`(pair_id = rp$pair_id[rp_idx],
+                 ref_rank = rp$ref_rank[rp_idx],
+                 self_prec = rp$self_prec[rp_idx],
+                 partner_prec = rp$partner_prec[rp_idx])]
+  g2_full[, rp_idx := NULL]
+  g2_full <- merge(g2_full, pre,
+                   by.x = c("R.FileName", "partner_prec"),
+                   by.y = c("R.FileName", "EG.PrecursorId"), all.x = TRUE)
+  setnames(g2_full, "fg_before", "partner_before")
+  g2_full <- merge(g2_full, post,
+                   by.x = c("R.FileName", "self_prec"),
+                   by.y = c("R.FileName", "EG.PrecursorId"), all.x = TRUE)
+  setnames(g2_full, "fg_after", "self_after")
+  # Also the self pre-swap value, to identify the NaN-keep-own case.
+  g2_full <- merge(g2_full, pre,
+                   by.x = c("R.FileName", "self_prec"),
+                   by.y = c("R.FileName", "EG.PrecursorId"), all.x = TRUE)
+  setnames(g2_full, "fg_before", "self_before")
+  g2_full[, side := side]
+  g2_full[]
+}
+verify_dt <- rbind(build_side("HIGH"), build_side("LOW"))
+verify_dt <- merge(verify_dt,
+                   pairs5[, .(pair_id, facet = sprintf(
+                     "pair %d (%s ↔ %s)", pair_id, PG_high, PG_low))],
+                   by = "pair_id")
+verify_dt[, facet := factor(facet, levels = unique(facet[order(pair_id)]))]
+verify_dt[, side  := factor(side,  levels = c("HIGH", "LOW"))]
+
+# Classify each row.
+verify_dt[, status := fcase(
+  is.na(self_after) & is.na(partner_before),
+    "both NaN",
+  is.na(partner_before) & !is.na(self_after) &
+    !is.na(self_before) & abs(self_after - self_before) < 1e-9,
+    "partner NaN — self.after = self.before (kept own)",
+  is.na(partner_before),
+    "partner NaN — other",
+  !is.na(self_after) & !is.na(partner_before) &
+    abs(self_after - partner_before) < 1e-6,
+    "swap OK: self.after == partner.before",
+  default = "MISMATCH"
+)]
+status_levels <- c(
+  "swap OK: self.after == partner.before",
+  "partner NaN — self.after = self.before (kept own)",
+  "partner NaN — other",
+  "both NaN",
+  "MISMATCH"
+)
+verify_dt[, status := factor(status, levels = status_levels)]
+
+# Tabulate and plot.
+status_tbl <- verify_dt[, .N, by = status][order(match(status, status_levels))]
+status_subtitle <- paste(sprintf("%s: %d", status_tbl$status, status_tbl$N),
+                         collapse = " · ")
+knitr::kable(status_tbl, col.names = c("Outcome per (G2 run × pair × side)", "n"),
+             caption = "Per-row classification across all 5 pairs × 20 G2 runs × HIGH/LOW.")
+
+plot_dt <- verify_dt[!is.na(partner_before) & !is.na(self_after)]
+ggplot(plot_dt, aes(x = log2(partner_before), y = log2(self_after))) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey55") +
+  geom_point(aes(colour = status), alpha = 0.55, size = 1.4) +
+  facet_wrap(~ facet, ncol = 2, scales = "free") +
+  scale_colour_manual(values = c(
+    "swap OK: self.after == partner.before" = "#2ca02c",
+    "MISMATCH" = "#d62728")) +
+  labs(x = "log2 partner.before (rank-aligned partner's pre-swap FG.Quantity)",
+       y = "log2 self.after (this precursor's post-swap FG.Quantity)",
+       colour = NULL,
+       subtitle = status_subtitle) +
+  theme(legend.position = "top",
+        strip.text = element_text(face = "bold"))
+```
+
+### What the panels confirm
+
+- **Green dots on `y = x`** are the swap operating as documented: in
+  this G2 run, the precursor's post-swap intensity equals its
+  rank-aligned partner's pre-swap intensity. Every dot landing exactly
+  on the line is a confirmation that no intensity value was created,
+  destroyed, or rescaled — only relabelled.
+- **Any red `MISMATCH` dot** would indicate a value that is not
+  explained by the documented swap rule. There shouldn't be any.
+- **NaN-partner cases** (counted in the table above, not plotted)
+  happen when the rank-aligned partner has no measurement in that
+  run. The script keeps the original value, so the precursor's
+  post-swap value equals its pre-swap value rather than the partner's
+  (which is NaN). This is the same "drop scope" issue captured in
+  `TODO/TODO_SWAP_DESIGN.md` under "Known limitations" — it does not
+  alter what the swap *did do* with the rows that have a partner.
