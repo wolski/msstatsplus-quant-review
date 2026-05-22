@@ -172,3 +172,108 @@ signal, or MSstats imputation absorbed it). All five pairs shown here
 are early in the `pair_id` ordering, which is also the candidate-quality
 ordering (smaller peptide-count mismatch + FC closer to the window
 centre), so they should be among the cleanest.
+
+## G2 only — precursor-level before vs after
+
+The plot above summarises the swap at the protein level. To see what the
+script actually did to the data, here is the precursor-level view
+restricted to the **G2** runs (the half of each dilution whose
+intensities were rewritten). Each dot is one precursor × one run,
+coloured by which pair member it belongs to (HIGH blue, LOW red).
+Reading left to right within a row you should see, after the swap, the
+blue and red point clouds switch vertical position: the HIGH partner's
+precursors drop down to the LOW partner's intensity band, and vice
+versa.
+
+Precursor intensities are aggregated by averaging MSstats-input
+`Intensity` over fragments within each `(Run, Protein, PeptideSequence,
+PrecursorCharge)` quadruple, then log2-transformed. Inputs come from the
+two pipelines' `MSstats_input.csv` files; the same 5 pairs as above are
+shown.
+
+```{r g2-precursor-load}
+mi_before_path <- file.path(base_dir,
+  "CSF_Spectronaut/all_data/log2/swap/MSstats/MSstats_input.csv")
+mi_after_path  <- file.path(base_dir,
+  "CSF_Spectronaut_protein_swap/all_data/log2/swap/MSstats/MSstats_input.csv")
+stopifnot(file.exists(mi_before_path), file.exists(mi_after_path))
+
+target_proteins <- unique(pairs5_long$PG)
+g2_runs <- grp[group == "G2", R.FileName]
+
+# Only the columns we need; filter to the 10 proteins immediately after read.
+keep_cols <- c("ProteinName", "PeptideSequence", "PrecursorCharge",
+               "Run", "Intensity")
+load_precursor <- function(path) {
+  raw <- fread(path, select = keep_cols)
+  raw <- raw[ProteinName %in% target_proteins & Run %in% g2_runs]
+  raw[, .(intensity = mean(Intensity, na.rm = TRUE)),
+       by = .(ProteinName, PeptideSequence, PrecursorCharge, Run)]
+}
+prec_before <- load_precursor(mi_before_path)
+prec_after  <- load_precursor(mi_after_path)
+prec_before[, phase := "Before swap"]
+prec_after[,  phase := "After swap"]
+prec_long <- rbind(prec_before, prec_after)
+prec_long[, log2_intensity := log2(intensity)]
+prec_long[, precursor_id := paste(PeptideSequence, PrecursorCharge, sep = "_")]
+
+# Attach pair_id / role and the panel title used above.
+prec_long <- merge(
+  prec_long,
+  pairs5_long[, .(PG, role, pair_id)],
+  by.x = "ProteinName", by.y = "PG",
+  all.x = TRUE
+)
+prec_long <- merge(
+  prec_long,
+  pairs5[, .(pair_id,
+             facet = sprintf("pair %d (%s ↔ %s)", pair_id, PG_high, PG_low))],
+  by = "pair_id"
+)
+prec_long[, phase := factor(phase, levels = c("Before swap", "After swap"))]
+prec_long[, role  := factor(role,  levels = c("HIGH", "LOW"))]
+prec_long[, facet := factor(facet, levels = unique(facet[order(pair_id)]))]
+
+# Map each G2 run to a compact x-axis order using the Seq number in R.FileName
+# (works for the CSF naming convention). Falls back to alphabetical order if
+# no Seq token is present.
+prec_long[, seq_int := suppressWarnings(as.integer(str_extract(Run, "(?<=Seq)\\d+")))]
+prec_long[is.na(seq_int), seq_int := match(Run, sort(unique(Run)))]
+prec_long[, sample := factor(Run, levels = unique(Run[order(seq_int)]))]
+```
+
+```{r g2-precursor-plot, fig.height=11, fig.cap="G2 runs only. Each dot is one precursor of one of the 10 pair members, in one G2 run. Columns: before-swap intensity (left), after-swap intensity (right). Colours: HIGH partner (blue), LOW partner (red). X-axis lists G2 R.FileNames ordered by injection sequence; labels suppressed for legibility."}
+ggplot(prec_long,
+       aes(x = sample, y = log2_intensity, colour = role)) +
+  geom_point(position = position_jitter(width = 0.25, height = 0),
+             alpha = 0.6, size = 1.6) +
+  scale_colour_manual(values = c(HIGH = "#1f77b4", LOW = "#d62728")) +
+  facet_grid(facet ~ phase, scales = "free_y") +
+  labs(x = "G2 sample (R.FileName, ordered by injection sequence)",
+       y = "log2 precursor intensity (mean over fragments)",
+       colour = NULL) +
+  theme(legend.position = "top",
+        axis.text.x  = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text.y = element_text(size = 9, face = "bold"),
+        strip.text.x = element_text(size = 11, face = "bold"),
+        panel.grid.minor.x = element_blank())
+```
+
+### Reading the G2-only panels
+
+- **Before swap (left).** Each G2 sample shows the precursors of both
+  pair members at their original intensities. The two clouds are
+  vertically separated by ≈ 1.6 log2 (the target |log2FC|): blue (HIGH)
+  on top, red (LOW) on the bottom.
+- **After swap (right).** In every G2 sample, the script has replaced
+  the HIGH partner's precursor intensities with the LOW partner's
+  rank-aligned values, and vice versa. The two clouds swap vertical
+  position — blue moves down, red moves up. Per-precursor scatter
+  within a sample reflects the original LOW (resp. HIGH) precursor
+  spread, since intensities were copied wholesale.
+
+If you see a blue dot still sitting high on the right (or a red dot
+still sitting low) in a given sample, that precursor's partner was
+absent from that run and the swap had nothing to substitute in.
