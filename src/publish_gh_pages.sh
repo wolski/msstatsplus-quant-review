@@ -24,6 +24,7 @@ PUBLISH=(
   CSF_Spectronaut_data_vis
   CSF_Spectronaut_sample_swap_data_vis
   CSF_Spectronaut_protein_swap_data_vis
+  swap_pairs_before_after
 )
 # Intentionally omitted: diagnostics, swap_visualization
 # These qmds are part of the parameterized matrix-render pipeline; their

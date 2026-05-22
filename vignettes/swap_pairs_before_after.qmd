@@ -1,0 +1,174 @@
+---
+title: "Protein-swap pairs — before vs after the swap"
+subtitle: "Five sample pairs from the CSF Spectronaut protein-swap benchmark"
+author: "Witold Wolski"
+date: today
+format:
+  html:
+    self-contained: true
+    toc: true
+    code-fold: true
+    fig-width: 12
+    fig-height: 9
+---
+
+This page visualises five protein-swap pairs from the CSF Spectronaut
+protein-swap benchmark before and after `src/swap_spectronaut_report.py`
+was applied to the Spectronaut report. Each pair is the HIGH-abundance
+member and its matched LOW-abundance partner (see
+[`TODO/TODO_SWAP_DESIGN.md`](../TODO/TODO_SWAP_DESIGN.md)). Each panel
+shows MSstats protein-level summaries (log2 intensities, one dot per
+run), grouped by the G1 / G2 split that the swap script assigned within
+each dilution. In the **Before** column intensities reflect the original
+data; in the **After** column the HIGH partner's intensities in G2 runs
+have been exchanged rank-for-rank with the LOW partner's intensities,
+producing the synthetic differential-abundance signal at a target
+|log2FC| ≈ 1.6.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+suppressPackageStartupMessages({
+  library(data.table)
+  library(ggplot2)
+  library(stringr)
+})
+theme_set(theme_bw(base_size = 12))
+```
+
+```{r load-inputs}
+base_dir <- ".."
+# Paths to the two MSstats protein-level summaries and the swap metadata.
+rda_before <- file.path(base_dir,
+  "CSF_Spectronaut/all_data/log2/swap/MSstats/MSstats_summarized.rda")
+rda_after  <- file.path(base_dir,
+  "CSF_Spectronaut_protein_swap/all_data/log2/swap/MSstats/MSstats_summarized.rda")
+gt_path    <- file.path(base_dir,
+  "CSF_Spectronaut_protein_swap/Report_swap_ground_truth.tsv")
+grp_path   <- file.path(base_dir,
+  "CSF_Spectronaut_protein_swap/Report_swap_group_annotation.csv")
+
+stopifnot(file.exists(rda_before), file.exists(rda_after),
+          file.exists(gt_path),    file.exists(grp_path))
+
+# Pull ProteinLevelData out of each summary into its own local variable.
+# The two folders' run_msstats.R scripts save the summary under different
+# variable names — pre-swap is `base_msstats_summarized`, post-swap is
+# `summarized`. Auto-detect either by scanning the freshly-loaded env.
+load_pld <- function(rda) {
+  e <- new.env()
+  load(rda, envir = e)
+  candidates <- intersect(c("base_msstats_summarized", "summarized"), ls(e))
+  if (length(candidates) == 0L) {
+    stop("No MSstats summary object found in ", rda)
+  }
+  obj <- e[[candidates[[1L]]]]
+  as.data.table(obj$ProteinLevelData)
+}
+pld_before <- load_pld(rda_before)
+pld_after  <- load_pld(rda_after)
+
+gt    <- fread(gt_path,  sep = "\t")
+grp   <- fread(grp_path)
+
+# How many pairs the script produced overall (informational).
+n_pairs_total <- nrow(gt)
+```
+
+The ground-truth file contains **`r n_pairs_total`** pairs. This page
+plots the first five.
+
+```{r pick-pairs}
+n_show <- 5L
+pairs5 <- gt[order(pair_id)][seq_len(min(.N, n_show))]
+pairs5_long <- rbind(
+  pairs5[, .(pair_id, PG = PG_high, role = "HIGH", partner = PG_low,
+             expected_log2fc, n_precursors)],
+  pairs5[, .(pair_id, PG = PG_low,  role = "LOW",  partner = PG_high,
+             expected_log2fc, n_precursors)]
+)
+knitr::kable(
+  pairs5[, .(pair_id, PG_high, PG_low, n_precursors,
+             expected_log2fc = round(expected_log2fc, 3))],
+  caption = "Pairs shown on this page (target |log2FC| ≈ 1.6 by design).")
+```
+
+```{r build-plot-data}
+# Subset both protein-level tables to the 10 proteins of interest and
+# attach the swap G1/G2 group to each run via originalRUN -> R.FileName.
+make_panel <- function(pld, phase_label) {
+  pld <- pld[Protein %in% pairs5_long$PG]
+  pld <- merge(
+    pld,
+    grp[, .(R.FileName, group)],
+    by.x = "originalRUN", by.y = "R.FileName",
+    all.x = TRUE
+  )
+  pld <- merge(
+    pld,
+    pairs5_long[, .(PG, role, pair_id, partner)],
+    by.x = "Protein", by.y = "PG",
+    all.x = TRUE
+  )
+  pld[, phase := phase_label]
+  pld[]
+}
+plot_dt <- rbind(
+  make_panel(pld_before, "Before swap"),
+  make_panel(pld_after,  "After swap")
+)
+plot_dt[, phase := factor(phase, levels = c("Before swap", "After swap"))]
+plot_dt[, role  := factor(role,  levels = c("HIGH", "LOW"))]
+plot_dt[, group := factor(group, levels = c("G1", "G2"))]
+# Build the panel title (pair_id + the two protein IDs).
+plot_dt <- merge(
+  plot_dt,
+  pairs5[, .(pair_id,
+             facet = sprintf("pair %d (%s ↔ %s)", pair_id, PG_high, PG_low))],
+  by = "pair_id"
+)
+plot_dt[, facet := factor(facet, levels = unique(facet[order(pair_id)]))]
+```
+
+```{r plot-pairs, fig.cap="Each panel = one swap pair. Columns split before-swap (left) and after-swap (right). Within a panel, x = the run's G1/G2 assignment, y = MSstats protein-level log2 intensity (one dot per run). Lines connect per-role group means."}
+plot_means <- plot_dt[
+  , .(LogIntensities = mean(LogIntensities, na.rm = TRUE)),
+  by = .(facet, phase, group, role)
+]
+
+ggplot(plot_dt, aes(x = group, y = LogIntensities, colour = role)) +
+  geom_jitter(width = 0.18, height = 0, alpha = 0.45, size = 1.8) +
+  geom_point(data = plot_means, size = 3.6) +
+  geom_line(data = plot_means, aes(group = role), linewidth = 1.0) +
+  scale_colour_manual(values = c(HIGH = "#1f77b4", LOW = "#d62728")) +
+  facet_grid(facet ~ phase, scales = "free_y") +
+  labs(x = "Swap group (G1 / G2, per-dilution random split)",
+       y = "log2 protein intensity (MSstats summary)",
+       colour = NULL) +
+  theme(legend.position = "top",
+        strip.text.y    = element_text(size = 9, face = "bold"),
+        strip.text.x    = element_text(size = 11, face = "bold"))
+```
+
+## How to read these panels
+
+- **Before swap (left column).** Both pair members are real proteins
+  with their real intensities. The G1 / G2 split is purely random within
+  each dilution, so the HIGH and LOW lines should look roughly flat
+  between groups (no systematic G1 vs G2 difference yet). The two
+  proteins remain visibly different from each other: the HIGH partner
+  sits well above the LOW partner.
+- **After swap (right column).** In the G2 runs the HIGH partner's
+  precursor / fragment intensities have been replaced rank-for-rank by
+  the LOW partner's, and vice versa. So in G2 the **HIGH line should
+  drop** to where the LOW line used to be, and the **LOW line should
+  rise** to where the HIGH line used to be — the two lines cross. The
+  G2-vs-G1 gap is the synthetic differential-abundance signal the
+  benchmark recovers; by design its magnitude is ≈ 1.6 in log2 (table
+  above).
+
+If a panel does not show this crossing pattern in the right column, the
+swap failed for that pair (e.g., dropped peptides removed too much
+signal, or MSstats imputation absorbed it). All five pairs shown here
+are early in the `pair_id` ordering, which is also the candidate-quality
+ordering (smaller peptide-count mismatch + FC closer to the window
+centre), so they should be among the cleanest.

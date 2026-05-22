@@ -33,6 +33,7 @@ RENDER=(
   CSF_Spectronaut_data_vis.qmd
   CSF_Spectronaut_sample_swap_data_vis.qmd
   CSF_Spectronaut_protein_swap_data_vis.qmd
+  swap_pairs_before_after.qmd
 )
 # Intentionally omitted: diagnostics.qmd, swap_visualization.qmd
 # These are parameterized matrix-render targets; their YAML defaults do
