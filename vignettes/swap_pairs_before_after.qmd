@@ -440,3 +440,153 @@ ggplot(plot_dt, aes(x = log2(partner_before), y = log2(self_after))) +
   (which is NaN). This is the same "drop scope" issue captured in
   `TODO/TODO_SWAP_DESIGN.md` under "Known limitations" — it does not
   alter what the swap *did do* with the rows that have a partner.
+
+## Within-condition SD before vs after the swap
+
+A natural sanity check: if the only thing the swap does is rewrite
+intensities for the Positive class in G2 runs, then **before** the swap
+there should be no systematic Positive/Negative within-condition SD
+difference — at that point the labels are arbitrary relative to a
+random G1/G2 partition. Whether this expectation holds is, in itself,
+informative about the **swap-pair selection bias**: the swap candidates
+are chosen from proteins with matched precursor counts and a fold-change
+window across the abundance distribution, which can enrich the Positive
+class for proteins with intrinsically different variability than the
+average.
+
+Below, two density plots over the protein-swap `good_data` subset
+(15 neat runs: 8 in Condition1 ≡ G1, 7 in Condition2 ≡ G2). Each
+protein contributes one SD per condition (per-condition SD, not pooled),
+matching the convention in [`vignettes/review_supplement.qmd`'s
+`protein-swap-effect-variance`
+chunk](review_supplement.html) so the **right panel here is directly
+comparable** to that figure. The **left** panel computes the same
+quantity on the *original* (pre-swap) report restricted to the same
+15 runs and the same Positive / Negative label assignment from
+[`CSF_protein_swap_list.csv`](../CSF_Spectronaut_protein_swap/CSF_protein_swap_list.csv).
+
+```{r sd-pre-post-load, cache=TRUE}
+# Same protein/run summarization as review_supplement.qmd:
+# log2(FG.Quantity), dedupe at (run, protein, precursor), then mean
+# across precursors per (run, protein).
+summarize_report <- function(report_path, run_set) {
+  rep <- fread(report_path,
+               select = c("R.FileName", "PG.ProteinGroups",
+                          "EG.PrecursorId", "FG.Quantity"))
+  rep <- rep[R.FileName %in% run_set &
+             nzchar(PG.ProteinGroups) &
+             is.finite(FG.Quantity) & FG.Quantity > 0]
+  rep <- unique(rep, by = c("R.FileName", "PG.ProteinGroups",
+                            "EG.PrecursorId"))
+  rep[, .(LogIntensity = mean(log2(FG.Quantity), na.rm = TRUE)),
+        by = .(R.FileName, Protein = PG.ProteinGroups)]
+}
+
+good_data_ann <- fread(file.path(base_dir,
+  "CSF_Spectronaut_protein_swap/good_data/annotation.csv"))
+swap_list <- fread(file.path(base_dir,
+  "CSF_Spectronaut_protein_swap/CSF_protein_swap_list.csv"))
+run_set <- good_data_ann$R.FileName
+ann_g <- good_data_ann[, .(R.FileName, Condition)]
+
+# Pre-swap = original Spectronaut Report restricted to the same 15
+# good_data runs; G1/G2 condition comes from good_data_ann so the
+# partition matches exactly.
+pre_pld  <- summarize_report(file.path(base_dir,
+  "CSF_Spectronaut/Report.tsv"), run_set)
+# Post-swap = swap-script's good_data Report (15 runs, same set).
+post_pld <- summarize_report(file.path(base_dir,
+  "CSF_Spectronaut_protein_swap/good_data/Report.tsv"), run_set)
+pre_pld[,  phase := "Before swap"]
+post_pld[, phase := "After swap"]
+
+# Join with condition + truth label, compute per-(protein, condition) SD.
+per_cond_sd <- function(pld) {
+  m <- merge(pld, ann_g, by = "R.FileName")
+  m <- merge(m, swap_list, by = "Protein")
+  m[, .(sd_log = sd(LogIntensity, na.rm = TRUE), n = .N),
+      by = .(Protein, Label, Condition, phase)
+  ][is.finite(sd_log) & n >= 2]
+}
+sd_pre  <- per_cond_sd(pre_pld)
+sd_post <- per_cond_sd(post_pld)
+sd_all  <- rbind(sd_pre, sd_post)
+sd_all[, phase := factor(phase, levels = c("Before swap", "After swap"))]
+sd_all[, Label := factor(Label, levels = c("Negative", "Positive"))]
+```
+
+```{r sd-pre-post-plot, fig.height=4.5, fig.width=11, fig.cap="Within-condition SD density on the protein-swap good_data subset (15 neat runs, 8 Condition1 + 7 Condition2). One value per protein per condition. **Left:** original Report.tsv values (pre-swap) using the same G1/G2 partition — Positive and Negative densities should overlap because the partition is random within neat runs and no swap has been applied yet. **Right:** swap-script's good_data Report (post-swap) — the Positive density shifts right because rank-aligned precursor exchanges between high- and low-abundance partners inflate the within-condition spread for the Positive class only."}
+medians <- sd_all[, .(med = median(sd_log)), by = .(phase, Label)]
+ggplot(sd_all, aes(x = sd_log, fill = Label, colour = Label)) +
+  geom_density(alpha = 0.35, linewidth = 0.6) +
+  geom_vline(data = medians, aes(xintercept = med, colour = Label),
+             linetype = "dashed", linewidth = 0.5) +
+  facet_wrap(~ phase, scales = "free_y", ncol = 2) +
+  scale_fill_manual(values   = c(Negative = "#7f7f7f", Positive = "#2ca02c")) +
+  scale_colour_manual(values = c(Negative = "#7f7f7f", Positive = "#2ca02c")) +
+  labs(x = "within-condition SD of mean log2 protein intensity",
+       y = "density", fill = NULL, colour = NULL) +
+  theme(legend.position = "top",
+        strip.text = element_text(face = "bold"))
+```
+
+```{r sd-pre-post-table}
+sd_summary <- sd_all[
+  ,
+  .(n_proteins = uniqueN(Protein),
+    n_obs      = .N,
+    median_sd  = round(median(sd_log), 3),
+    iqr_sd     = round(IQR(sd_log), 3)),
+  by = .(phase, Label)
+]
+knitr::kable(
+  sd_summary,
+  caption = "Per-condition SD summary (median + IQR) on good_data, by phase and label.",
+  col.names = c("Phase", "Label", "n proteins (≥2 obs)",
+                "n (protein × condition) rows", "median SD", "IQR")
+)
+```
+
+### What the panels actually show (and what that means)
+
+What the data above reveals is *not* the clean "Negatives = Positives
+before swap, Positives broader after swap" story I expected. The
+medians in the table give the punchline:
+
+- **Negatives are stable across the swap.** Median per-condition SD on
+  the protein-swap `good_data` subset is **0.314** before and
+  **0.314** after. Negatives are never written to, so this is just a
+  cross-check.
+- **Positives are broader than Negatives already *before* the swap.**
+  Median per-condition SD ≈ **0.597**, roughly double the Negative
+  value. After the swap it's **0.587** — essentially unchanged.
+
+So the broader Positive SD distribution that shows up in
+`review.qmd`'s `protein-swap-sd` figure (MSstats-summarized) and
+`review_supplement.qmd`'s `protein-swap-effect-variance` figure (raw
+report) is **predominantly a swap-pair selection bias**, not a
+manufactured-by-the-swap effect. The pair-builder in
+[`src/swap_spectronaut_report.py`](../src/swap_spectronaut_report.py)
+keeps two structural constraints — exact `n_precursors` match and
+`log2(prot_mean_hi) - log2(prot_mean_lo) ∈ [1.4, 1.8]` — that, after
+greedy bipartite matching, end up picking the Positive class from a
+slice of the abundance distribution that already has higher
+within-condition variability than the bulk.
+
+The swap mechanism itself **rearranges** SD values inside the Positive
+class (each Positive's G2-condition SD becomes its rank-aligned
+partner's pre-swap G2-condition SD) rather than inflating them. That
+explains why the Positive median barely moves.
+
+This caveat does not affect what the swap does to the **mean** signal —
+the manufactured ~1.6 log2 effect that drives the benchmark is real
+and lives in the mean, not the SD. But it does mean that any
+interpretation of the existing review figures as "the rank-aligned
+exchange inflates Positive variance" should be read as
+"the Positives are *drawn from* a more variable subset, and the
+exchange preserves that variability when relabelling".
+
+A practical follow-up would be to construct an additional matched
+Negative class with the same `n_precursors` distribution and a similar
+abundance range as the Positives, to confirm that the Positive-class
+SD distribution is reproduced by selection alone.
