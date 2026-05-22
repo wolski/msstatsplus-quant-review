@@ -47,6 +47,7 @@ if (!dir.exists(QUANT_ROOT)) {
 q <- function(...) file.path(QUANT_ROOT, ...)
 
 source(q("R/ground_truth.R"))
+source(q("R/figures.R"))
 source(q("benchmark_experiments_functions.R"))
 
 model_filename <- list(
@@ -1074,23 +1075,27 @@ protein-swap benchmark. What is suspicious in the authors' sample-swap
 benchmark is the opposite construction: the null/Negative class is made more
 variable by mixing Neat and 1:2 samples inside each condition.
 
-```{r protein-swap-effect-variance, fig.cap="Explicit protein-swap benchmark, good_data. Intensities are direct report-derived protein/run summaries: log2 FG.Quantity values averaged from precursor to protein level within each run. Positives are matched protein-pair members; Negatives remain near the null. The SD density shows condition-specific within-condition SDs, not a pooled summary. The broader Positive SD distribution is compatible with regulated proteins being more heterogeneous than null proteins.", fig.width=10, fig.height=4}
+```{r protein-swap-effect-variance, fig.cap="Explicit protein-swap benchmark, good_data. Intensities are direct report-derived protein/run summaries: log2 FG.Quantity values averaged from precursor to protein level within each run. Positives are matched protein-pair members; Negatives remain near the null. Left: per-protein effect size. Right: condition-specific within-condition SD (one density per protein per condition) — computed via the shared helper `protein_swap_sd_density_from_report()` in `R/figures.R`, the same one used by `review.qmd`'s `protein-swap-sd` figure, so the two vignettes show the byte-identical SD density. NOTE: the broader Positive SD distribution visible here is **predominantly a swap-pair selection effect** (n_precursors median 3 vs 9 for Negatives, exact-match constraint in the pair-builder), not an effect of the rank-aligned exchange itself — see `swap_pairs_before_after.qmd` for the empirical pre vs post G2-only check.", fig.width=10, fig.height=4}
 protein_swap_stats <- variance_stats_for_review(
-  q("CSF_Spectronaut_protein_swap/good_data/Report.tsv"),
-  q("CSF_Spectronaut_protein_swap/good_data/annotation.csv"),
-  truth_sets$protein_swap
-)
-protein_swap_condition_sd <- condition_sd_stats_for_review(
   q("CSF_Spectronaut_protein_swap/good_data/Report.tsv"),
   q("CSF_Spectronaut_protein_swap/good_data/annotation.csv"),
   truth_sets$protein_swap
 )
 protein_swap_plots <- plot_effect_variance(
   protein_swap_stats,
-  protein_swap_condition_sd,
+  # Empty condition_sd: the variance panel comes from the shared helper below;
+  # plot_effect_variance ignores its variance side when fed an empty data.table.
+  data.table::data.table(Protein = character(), Label = character(),
+                         sd_log = numeric()),
   "Protein-swap good_data"
 )
-protein_swap_plots$effect + protein_swap_plots$variance
+protein_swap_variance <- protein_swap_sd_density_from_report(
+  report_path     = q("CSF_Spectronaut_protein_swap/good_data/Report.tsv"),
+  annotation_path = q("CSF_Spectronaut_protein_swap/good_data/annotation.csv"),
+  swap_list_path  = q("CSF_Spectronaut_protein_swap/CSF_protein_swap_list.csv"),
+  title_prefix    = "Protein-swap good_data"
+)
+protein_swap_plots$effect + protein_swap_variance
 ```
 
 ```{r protein-swap-mean-variance, fig.cap="Explicit protein-swap benchmark, good_data. Each point is one protein summarized from the direct report-derived protein/run matrix. The y-axis is the pooled within-condition SD, used here only to place one variance summary per protein. Unlike the authors' sample-swap benchmark, the null/Negative class is not forced into a higher-variance dilution mixture.", fig.width=8, fig.height=5}

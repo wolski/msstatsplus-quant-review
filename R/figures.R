@@ -82,3 +82,75 @@ fig_na_heatmap <- function(matrix_log2, annotation = NULL, out_path = NULL) {
   storage.mode(m) <- "integer"
   fig_heatmap(m, annotation = annotation, out_path = out_path)
 }
+
+## ---------------------------------------------------------------------------
+## Protein-swap per-condition SD density — shared canonical implementation.
+## Computed directly from the Spectronaut Report.tsv (NOT from the MSstats
+## summary RDA), so reviewers see exactly the values the swap script writes
+## without any imputation / TMP summarization. Used by both review.qmd
+## (`protein-swap-sd`) and review_supplement.qmd
+## (`protein-swap-effect-variance`) so the two figures are byte-identical.
+##
+## Inputs:
+##   report_path     - good_data-subset Spectronaut report (e.g.
+##                     CSF_Spectronaut_protein_swap/good_data/Report.tsv)
+##   annotation_path - matching annotation.csv with R.FileName + Condition
+##                     (Condition1 / Condition2 = G1 / G2 of the swap design)
+##   swap_list_path  - CSF_protein_swap_list.csv with Protein + Label
+##                     (Positive / Negative)
+##
+## Returns a ggplot. The same input feeds the supplement's
+## `condition_sd_stats_for_review` + `plot_effect_variance` helpers, so
+## differences would be purely cosmetic.
+## ---------------------------------------------------------------------------
+
+protein_swap_sd_density_from_report <- function(report_path,
+                                                  annotation_path,
+                                                  swap_list_path,
+                                                  title_prefix = NULL) {
+  stopifnot(file.exists(report_path),
+            file.exists(annotation_path),
+            file.exists(swap_list_path))
+
+  rep <- data.table::fread(
+    report_path,
+    select = c("R.FileName", "PG.ProteinGroups",
+               "EG.PrecursorId", "FG.Quantity")
+  )
+  rep <- rep[nzchar(PG.ProteinGroups) &
+               is.finite(FG.Quantity) & FG.Quantity > 0]
+  rep <- unique(rep, by = c("R.FileName", "PG.ProteinGroups",
+                              "EG.PrecursorId"))
+  pld <- rep[, .(LogIntensity = mean(log2(FG.Quantity), na.rm = TRUE)),
+                by = .(R.FileName, Protein = PG.ProteinGroups)]
+
+  ann <- data.table::fread(annotation_path)[, .(R.FileName, Condition)]
+  pld <- merge(pld, ann, by = "R.FileName")
+
+  swap_list <- data.table::fread(swap_list_path)[, .(Protein, Label)]
+  pld <- merge(pld, swap_list, by = "Protein")
+
+  per_cond <- pld[
+    ,
+    .(sd_log = stats::sd(LogIntensity, na.rm = TRUE), n = .N),
+    by = .(Protein, Label, Condition)
+  ][is.finite(sd_log) & n >= 2]
+
+  pal <- c(Positive = "#2ca02c", Negative = "#7f7f7f")
+  title <- if (is.null(title_prefix)) {
+    "Within-condition SD (per-condition, direct from Report.tsv)"
+  } else {
+    paste(title_prefix, "within-condition SD")
+  }
+  ggplot2::ggplot(per_cond, ggplot2::aes(x = sd_log, fill = Label)) +
+    ggplot2::geom_density(alpha = 0.55) +
+    ggplot2::scale_fill_manual(values = pal) +
+    ggplot2::labs(
+      title = title,
+      x = "sd(log2 intensity) within one condition",
+      y = "density",
+      fill = NULL
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(legend.position = "top")
+}

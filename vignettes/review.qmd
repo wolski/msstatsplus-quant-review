@@ -991,8 +991,13 @@ ps_figs <- swap_effect_and_sd(
 ps_figs$effect
 ```
 
-```{r protein-swap-sd, fig.cap="Within-condition pooled SD on CSF_Spectronaut_protein_swap good_data (neat only). Positives carry inflated variance (mixed-source rank-for-rank exchanges between two precursors of different proteins); Negatives are pristine."}
-ps_figs$sd
+```{r protein-swap-sd, fig.cap="Within-condition SD on CSF_Spectronaut_protein_swap good_data (neat only). Computed directly from the Spectronaut Report.tsv (not from the MSstats-summarized RDA), so this figure is byte-identical to the corresponding density in review_supplement.qmd (`protein-swap-effect-variance`). Both vignettes call `protein_swap_sd_density_from_report()` in `R/figures.R`. NOTE: as the companion vignette `swap_pairs_before_after.qmd` shows, the broader Positive density seen here is predominantly a swap-pair selection effect (n_precursors median 3 vs 9 for Negatives) — not an effect manufactured by the rank-aligned exchange. The Positive SD distribution is visible already in the pre-swap data on the same 15 runs; the swap permutes SDs within the Positive class without inflating them."}
+protein_swap_sd_density_from_report(
+  report_path     = q("CSF_Spectronaut_protein_swap/good_data/Report.tsv"),
+  annotation_path = q("CSF_Spectronaut_protein_swap/good_data/annotation.csv"),
+  swap_list_path  = q("CSF_Spectronaut_protein_swap/CSF_protein_swap_list.csv"),
+  title_prefix    = "Protein-swap good_data"
+)
 ```
 
 ```{r protein-swap-mv, fig.cap="Mean–variance relationship on CSF_Spectronaut_protein_swap good_data (neat only). Variance asymmetry flips direction relative to sample-swap good_data (compare with sample_swap mean-variance figure above)."}
