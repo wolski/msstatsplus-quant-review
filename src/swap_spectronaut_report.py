@@ -624,9 +624,16 @@ def main() -> int:
                           line_terminator="\r\n")
 
     print(f"[write] {out_gt}", file=sys.stderr)
+    def _list_to_json(x: object) -> str:
+        # Polars list-column cells come through as pl.Series (not list) under
+        # polars >= 1.x; coerce to a Python list before json.dumps. `x or []`
+        # used to work here but raises on a Series ("truth value is ambiguous").
+        if x is None:
+            return "[]"
+        return json.dumps(list(x))
     gt.with_columns(
-        pl.col("dropped_precursors").map_elements(lambda x: json.dumps(x or []), return_dtype=pl.String),
-        pl.col("dropped_peptides").map_elements(lambda x: json.dumps(x or []), return_dtype=pl.String),
+        pl.col("dropped_precursors").map_elements(_list_to_json, return_dtype=pl.String),
+        pl.col("dropped_peptides").map_elements(_list_to_json, return_dtype=pl.String),
     ).write_csv(out_gt, separator="\t")
 
     print(f"[write] {out_tp}", file=sys.stderr)
