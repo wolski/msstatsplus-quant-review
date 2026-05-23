@@ -42,6 +42,7 @@ include CSF_Spectronaut_sample_swap/Makefile
 .PHONY: help all symlinks prep cells diagnostics review \
         review-html review-pdf review-best-effort \
         render-vignettes gh-pages \
+        data-vis data-vis-protein-swap data-vis-sample-swap \
         mix mix-diagnostics \
         clean clean-models clean-subsets clean-prep \
         all_log2 all_median all_quantile \
@@ -70,6 +71,10 @@ help:
 	@echo 'GitHub Pages (deliberately separate — chain explicitly):'
 	@echo '  render-vignettes     qmd -> html for vignettes/*.qmd'
 	@echo '  gh-pages             force-push staged HTML to orphan gh-pages branch'
+	@echo
+	@echo 'Data-vis (post-prep, no cells needed):'
+	@echo '  data-vis             render both swap data-vis vignettes'
+	@echo '  data-vis-protein-swap | data-vis-sample-swap'
 	@echo
 	@echo 'Mix_of_Proteome (standalone; not part of all):'
 	@echo '  mix                  symlinks + prep + cells for Mix_of_Proteome/'
@@ -236,6 +241,32 @@ render-vignettes:
 
 gh-pages:
 	bash src/publish_gh_pages.sh
+
+
+# =============================================================================
+# Data-only visualisations for our two synthetic-swap datasets. These read
+# the raw Spectronaut Report.tsv (+ swap metadata) produced by the prep
+# step and DO NOT depend on any cell stamps. Run right after `make prep`
+# (or just the relevant `prep-*-swap`) to verify what the swap script
+# actually produced before fitting any models.
+# =============================================================================
+data-vis: data-vis-protein-swap data-vis-sample-swap
+
+data-vis-protein-swap: vignettes/CSF_Spectronaut_protein_swap_data_vis.html
+data-vis-sample-swap:  vignettes/CSF_Spectronaut_sample_swap_data_vis.html
+
+vignettes/CSF_Spectronaut_protein_swap_data_vis.html: \
+        vignettes/CSF_Spectronaut_protein_swap_data_vis.qmd \
+        CSF_Spectronaut_protein_swap/.prep.stamp \
+        $(VIGNETTE_HELPERS)
+	cd vignettes && quarto render CSF_Spectronaut_protein_swap_data_vis.qmd --to html
+
+vignettes/CSF_Spectronaut_sample_swap_data_vis.html: \
+        vignettes/CSF_Spectronaut_sample_swap_data_vis.qmd \
+        CSF_Spectronaut/.prep.stamp \
+        CSF_Spectronaut_sample_swap/.prep.stamp \
+        $(VIGNETTE_HELPERS)
+	cd vignettes && quarto render CSF_Spectronaut_sample_swap_data_vis.qmd --to html
 
 
 # =============================================================================
