@@ -257,6 +257,20 @@ centered closer to zero. Positive proteins are matched protein-pair members, so
 their effect-size distribution reflects the constructed protein-pair signal
 rather than a sample dilution effect.
 
+**On the realized vs nominal log2FC**: the swap script (`src/swap_spectronaut_report.py`)
+enforces `|log2fc| >= --min-log2fc` strictly at pair-selection time, with
+the protein abundance now measured on the same Neat-only `good_data` runs
+used here (`--good-rule neat_only`). The script's smallest-FC-first
+preference clusters pairs right at the floor (median target |log2FC| ≈
+the floor itself, here 0.5). The plotted `mean_diff` is a per-protein
+estimate computed from the Cond1 vs Cond2 sample means on only 8 vs 7
+runs, so its sampling noise (median |realized − expected| ≈ 0.24 log2
+on the current run) scatters some Positives below the nominal floor.
+That tail is the intended *boundary-of-detection* signal — methods that
+shrink small effects to zero should miss it, methods that don't should
+catch it. Raise `--min-log2fc` to buffer against the sampling noise if
+you want a cleaner separation.
+
 ```{r effect_density, fig.height=4}
 ggplot(wide[is.finite(mean_diff)], aes(x = mean_diff, fill = class)) +
   geom_density(alpha = 0.55) +
@@ -264,6 +278,21 @@ ggplot(wide[is.finite(mean_diff)], aes(x = mean_diff, fill = class)) +
   scale_fill_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
   labs(title = "Per-protein effect size", x = "log2 fold-change (Condition1 - Condition2)", y = "density", fill = NULL) +
   theme(legend.position = "top")
+```
+
+```{r effect_histogram, fig.height=4, fig.cap="Per-protein effect size, histogram view. Same data as the density above; class densities are scaled to count via after_stat(count) so the relative class sizes are visible (≈ 10× more Negatives than Positives)."}
+ggplot(wide[is.finite(mean_diff)],
+       aes(x = mean_diff, fill = class, colour = class)) +
+  geom_histogram(binwidth = 0.1, alpha = 0.55, position = "identity",
+                 boundary = 0) +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey40") +
+  scale_fill_manual(values   = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  scale_colour_manual(values = c(Positive = "#2ca02c", Negative = "#7f7f7f")) +
+  facet_wrap(~ class, ncol = 1, scales = "free_y") +
+  labs(title = "Per-protein effect size (histogram, per-class y-scale)",
+       x = "log2 fold-change (Condition1 - Condition2)",
+       y = "count", fill = NULL, colour = NULL) +
+  theme(legend.position = "none")
 ```
 
 ## Within-condition standard deviation

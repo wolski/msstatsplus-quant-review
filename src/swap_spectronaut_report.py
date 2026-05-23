@@ -52,6 +52,15 @@ def parse_args() -> argparse.Namespace:
                    help="Minimum |log2(prot_mean_hi/prot_mean_lo)| a pair must "
                         "exceed; no upper bound. The pair-builder prefers pairs "
                         "closest to this minimum and expands outward as needed.")
+    p.add_argument("--good-rule", default=None,
+                   choices=("label_good", "neat_only"),
+                   help="Restrict the reference run set used by "
+                        "compute_protein_stats. label_good: keep annotation "
+                        "rows with Label == 'Good'. neat_only: keep R.FileName "
+                        "matching 'NeatCSF'. Default (None): use all non-blank "
+                        "runs. Mirrors `src/build_subsets.py --good-rule` so "
+                        "the pair-level abundance gap is measured on the same "
+                        "subset that build_subsets/good_data uses downstream.")
     p.add_argument("--blank-condition", default="blank",
                    help="R.Condition value identifying blank runs (excluded from stats and output groups).")
     p.add_argument("--seed", type=int, default=42)
@@ -79,15 +88,39 @@ def load_report(path: Path) -> pl.DataFrame:
 # Step 1 — per-protein statistics on the reference set
 # ---------------------------------------------------------------------------
 
+def filter_runs_by_good_rule(annotation: pl.DataFrame, good_rule: str) -> pl.DataFrame:
+    """Filter an annotation to the 'good' runs. Mirrors
+    `src/build_subsets.py:filter_good` so the pair-level abundance gap can
+    be measured on the same subset the downstream good_data benchmark uses.
+    """
+    if good_rule == "label_good":
+        if "Label" not in annotation.columns:
+            raise ValueError(
+                "--good-rule=label_good requires a 'Label' column in the annotation."
+            )
+        return annotation.filter(pl.col("Label") == "Good")
+    if good_rule == "neat_only":
+        return annotation.filter(pl.col(COL_RUN).str.contains("NeatCSF"))
+    raise ValueError(f"Unknown good_rule: {good_rule}")
+
+
 def compute_protein_stats(df: pl.DataFrame, blank_cond: str,
-                            min_precursors: int = 2) -> pl.DataFrame:
+                            min_precursors: int = 2,
+                            reference_runs: list[str] | None = None) -> pl.DataFrame:
     """One row per protein with prot_mean_log2, n_precursors, n_peptides.
 
     Proteins with `n_precursors < min_precursors` are dropped from the
     eligible universe entirely (so they are neither Positives nor
     Negatives in the downstream swap_list).
+
+    If `reference_runs` is given (a list of R.FileName values), the
+    abundance statistics are computed only on those runs. Otherwise all
+    non-blank runs are used. Use this to make the pair-level log2fc
+    match the realized effect size on a specific benchmark subset.
     """
     df_ref = df.filter(pl.col(COL_COND) != blank_cond)
+    if reference_runs is not None:
+        df_ref = df_ref.filter(pl.col(COL_RUN).is_in(list(reference_runs)))
 
     # Mean precursor intensity (over runs) per (protein, precursor)
     prec_mean = (
@@ -585,8 +618,23 @@ def main() -> int:
     original_cols = df.columns
     original_rows = df.height
 
+    # Optionally restrict the abundance-reference run set so the pair-level
+    # log2fc is measured on the same subset that build_subsets/good_data
+    # picks downstream. Without this, the script measures abundance across
+    # the full dilution series, which can make pair-level log2fc and the
+    # realized per-protein Cond1-Cond2 effect diverge.
+    reference_runs: list[str] | None = None
+    if args.good_rule is not None:
+        ann_for_filter = pl.read_csv(args.annotation)
+        good_runs = filter_runs_by_good_rule(ann_for_filter, args.good_rule)
+        reference_runs = good_runs[COL_RUN].to_list()
+        print(f"[stats] --good-rule={args.good_rule}: restricting reference "
+              f"runs to {len(reference_runs)} of {ann_for_filter.height}",
+              file=sys.stderr)
+
     prot_stats, prec_mean, pep_mean = compute_protein_stats(
         df, args.blank_condition, min_precursors=args.min_precursors,
+        reference_runs=reference_runs,
     )
     print(f"[stats] {prot_stats.height} proteins after n_precursors >= "
           f"{args.min_precursors} filter", file=sys.stderr)
