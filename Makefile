@@ -57,11 +57,16 @@ help:
 	@echo 'Pipeline:'
 	@echo '  all                  symlinks + prep + cells + review (NOT diagnostics)'
 	@echo '  symlinks             canonical-name symlinks for raw inputs'
-	@echo '  prep                 build synthetic swap reports + subset dirs'
+	@echo '  prep                 build synthetic swap datasets + subset dirs (all 3 folders)'
 	@echo '  cells                run all 26 model-fitting cell-blocks'
 	@echo '  diagnostics          render per-cell diagnostics HTMLs (serial, run separately)'
 	@echo '  review               strict review render (requires all cell stamps)'
 	@echo '  review-best-effort   render review against whatever cell outputs exist'
+	@echo
+	@echo 'Per-folder prep (run the swap script + build_subsets for one dataset):'
+	@echo '  prep-csf             CSF authors prep (symlinks + build_subsets, no swap)'
+	@echo '  prep-protein-swap    run src/swap_spectronaut_report.py + build_subsets'
+	@echo '  prep-sample-swap     run src/swap_spectronaut_report_samples.py + build_subsets'
 	@echo
 	@echo 'Per-norm shortcuts:'
 	@echo '  all_log2 | all_median | all_quantile'
