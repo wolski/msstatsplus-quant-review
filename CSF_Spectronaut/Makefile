@@ -26,7 +26,7 @@ include mk/common.mk
 prep-csf: CSF_Spectronaut/.prep.stamp
 
 CSF_Spectronaut/.prep.stamp: CSF_Spectronaut/Report.tsv CSF_Spectronaut/annotation.csv src/build_subsets.py
-	$(PYTHON) src/build_subsets.py --report CSF_Spectronaut/Report.tsv --annotation CSF_Spectronaut/annotation.csv --out-dir CSF_Spectronaut --subsets all_data good_data --good-rule label_good
+	$(PYTHON) src/build_subsets.py --report CSF_Spectronaut/Report.tsv --annotation CSF_Spectronaut/annotation.csv --out-dir CSF_Spectronaut --subsets all_data --subsets good_data --good-rule label_good
 	touch $@
 
 

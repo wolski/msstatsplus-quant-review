@@ -22,33 +22,21 @@ Outputs (next to <stem>):
 
 from __future__ import annotations
 
-import argparse
 import shutil
 import sys
 from pathlib import Path
 
+import cyclopts
 import polars as pl
+
+app = cyclopts.App(name="swap-spectronaut-report-samples", help=__doc__)
 
 COL_RUN = "R.FileName"
 COL_COND_RAW = "R.Condition"
 COL_PG = "PG.ProteinGroups"
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--report", required=True, type=Path,
-                   help="Spectronaut TSV (pre-swap).")
-    p.add_argument("--annotation", required=True, type=Path,
-                   help="Annotation CSV with R.FileName, Condition, Order columns.")
-    p.add_argument("--protein-swap-list", required=True, type=Path,
-                   help="CSV with Protein, Label columns; Label in {Positive, Negative}.")
-    p.add_argument("--out-dir", required=True, type=Path)
-    p.add_argument("--cond-a", default="Condition1")
-    p.add_argument("--cond-b", default="Condition2")
-    p.add_argument("--blank-condition", default="Blank",
-                   help="Annotation Condition value identifying blank runs (excluded from pairing).")
-    return p.parse_args()
+# CLI moved below to @app.default on main().
 
 
 def build_pairing(annotation: pl.DataFrame, cond_a: str, cond_b: str,
@@ -110,17 +98,44 @@ def apply_run_swap(df: pl.DataFrame, partner: dict[str, str],
     return df
 
 
-def main() -> int:
-    args = parse_args()
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+@app.default
+def main(
+    *,
+    report: Path,
+    annotation: Path,
+    protein_swap_list: Path,
+    out_dir: Path,
+    cond_a: str = "Condition1",
+    cond_b: str = "Condition2",
+    blank_condition: str = "Blank",
+) -> int:
+    """TSV-level sample swap for Spectronaut reports.
 
-    print(f"[load] report: {args.report}", file=sys.stderr)
-    df = pl.read_csv(args.report, separator="\t", null_values=["NaN", ""],
+    Parameters
+    ----------
+    report
+        Spectronaut TSV (pre-swap).
+    annotation
+        Annotation CSV with R.FileName, Condition, Order columns.
+    protein_swap_list
+        CSV with Protein, Label columns; Label in {Positive, Negative}.
+    out_dir
+        Output directory; created if missing.
+    cond_a, cond_b
+        Annotation Condition values to pair across.
+    blank_condition
+        Annotation Condition value identifying blank runs (excluded
+        from pairing).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"[load] report: {report}", file=sys.stderr)
+    df = pl.read_csv(report, separator="\t", null_values=["NaN", ""],
                      infer_schema_length=20000, low_memory=False)
     print(f"[load] {df.height:,} rows x {df.width} cols", file=sys.stderr)
 
-    annotation = pl.read_csv(args.annotation)
-    swap_list = pl.read_csv(args.protein_swap_list)
+    annotation_df = pl.read_csv(annotation)
+    swap_list = pl.read_csv(protein_swap_list)
     assert {"Protein", "Label"}.issubset(swap_list.columns), \
         "protein-swap-list must have Protein,Label columns"
 
@@ -129,21 +144,21 @@ def main() -> int:
     print(f"[truth] {len(positives)} positives, {len(negatives)} negatives",
           file=sys.stderr)
 
-    partner, pairing_tbl = build_pairing(annotation, args.cond_a, args.cond_b,
-                                          args.blank_condition)
-    print(f"[pairs] {len(partner)//2} run pairs ({args.cond_a} <-> {args.cond_b})",
+    partner, pairing_tbl = build_pairing(annotation_df, cond_a, cond_b,
+                                          blank_condition)
+    print(f"[pairs] {len(partner)//2} run pairs ({cond_a} <-> {cond_b})",
           file=sys.stderr)
 
     original_cols = df.columns
     df_swapped = apply_run_swap(df, partner, negatives).select(original_cols)
 
-    stem = args.report.stem
+    stem = report.stem
     # Canonical Makefile contract: write Report.tsv + annotation.csv directly.
-    out_report = args.out_dir / "Report.tsv"
-    out_annotation = args.out_dir / "annotation.csv"
-    out_gt = args.out_dir / f"{stem}_sample_swap_ground_truth.tsv"
-    out_tp = args.out_dir / f"{stem}_sample_swap_true_positives.tsv"
-    out_pairs = args.out_dir / f"{stem}_sample_swap_group_annotation.csv"
+    out_report = out_dir / "Report.tsv"
+    out_annotation = out_dir / "annotation.csv"
+    out_gt = out_dir / f"{stem}_sample_swap_ground_truth.tsv"
+    out_tp = out_dir / f"{stem}_sample_swap_true_positives.tsv"
+    out_pairs = out_dir / f"{stem}_sample_swap_group_annotation.csv"
 
     print(f"[write] {out_report}", file=sys.stderr)
     df_swapped.write_csv(out_report, separator="\t", null_value="NaN",
@@ -151,7 +166,7 @@ def main() -> int:
                           line_terminator="\r\n")
 
     print(f"[write] {out_annotation}", file=sys.stderr)
-    shutil.copy(args.annotation, out_annotation)
+    shutil.copy(annotation, out_annotation)
 
     print(f"[write] {out_gt}", file=sys.stderr)
     swap_list.write_csv(out_gt, separator="\t")
@@ -167,4 +182,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    app()

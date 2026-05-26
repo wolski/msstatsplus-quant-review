@@ -21,7 +21,7 @@ prep-sample-swap: CSF_Spectronaut_sample_swap/.prep.stamp
 CSF_Spectronaut_sample_swap/.prep.stamp: CSF_Spectronaut/Report.tsv CSF_Spectronaut/annotation.csv R/build_sample_swap_list.R src/swap_spectronaut_report_samples.py src/build_subsets.py
 	Rscript R/build_sample_swap_list.R
 	$(PYTHON) src/swap_spectronaut_report_samples.py --report CSF_Spectronaut/Report.tsv --annotation CSF_Spectronaut/annotation.csv --protein-swap-list CSF_Spectronaut_sample_swap/CSF_protein_swap_list.csv --out-dir CSF_Spectronaut_sample_swap
-	$(PYTHON) src/build_subsets.py --report CSF_Spectronaut_sample_swap/Report.tsv --annotation CSF_Spectronaut_sample_swap/annotation.csv --out-dir CSF_Spectronaut_sample_swap --subsets all_data good_data small_good_data --good-rule label_good
+	$(PYTHON) src/build_subsets.py --report CSF_Spectronaut_sample_swap/Report.tsv --annotation CSF_Spectronaut_sample_swap/annotation.csv --out-dir CSF_Spectronaut_sample_swap --subsets all_data --subsets good_data --subsets small_good_data --good-rule label_good
 	touch $@
 
 

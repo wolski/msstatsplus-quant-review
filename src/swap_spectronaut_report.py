@@ -12,12 +12,13 @@ algorithmic plan this implements.
 
 from __future__ import annotations
 
-import argparse
 import json
 import shutil
 import sys
 from pathlib import Path
+from typing import Literal
 
+import cyclopts
 import polars as pl
 
 # ---------------------------------------------------------------------------
@@ -37,34 +38,10 @@ PEP_COLS = ["PEP.Quantity"]
 PG_COLS = ["PG.Quantity"]
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--report", required=True, type=Path)
-    p.add_argument("--annotation", required=True, type=Path)
-    p.add_argument("--out-dir", required=True, type=Path)
-    p.add_argument("--swap-fraction", type=float, default=0.05,
-                   help="Fraction of proteins to make Positive pair members. "
-                        "target_n_pairs = round(swap_fraction * n_proteins).")
-    p.add_argument("--min-precursors", type=int, default=2,
-                   help="Drop proteins with fewer precursors than this from "
-                        "the entire eligible universe (Positives and Negatives).")
-    p.add_argument("--min-log2fc", type=float, default=0.5,
-                   help="Minimum |log2(prot_mean_hi/prot_mean_lo)| a pair must "
-                        "exceed; no upper bound. The pair-builder prefers pairs "
-                        "closest to this minimum and expands outward as needed.")
-    p.add_argument("--good-rule", default=None,
-                   choices=("label_good", "neat_only"),
-                   help="Restrict the reference run set used by "
-                        "compute_protein_stats. label_good: keep annotation "
-                        "rows with Label == 'Good'. neat_only: keep R.FileName "
-                        "matching 'NeatCSF'. Default (None): use all non-blank "
-                        "runs. Mirrors `src/build_subsets.py --good-rule` so "
-                        "the pair-level abundance gap is measured on the same "
-                        "subset that build_subsets/good_data uses downstream.")
-    p.add_argument("--blank-condition", default="blank",
-                   help="R.Condition value identifying blank runs (excluded from stats and output groups).")
-    p.add_argument("--seed", type=int, default=42)
-    return p.parse_args()
+app = cyclopts.App(name="swap-spectronaut-report", help=__doc__)
+
+
+GoodRule = Literal["label_good", "neat_only"]
 
 
 # ---------------------------------------------------------------------------
@@ -604,17 +581,61 @@ def summary_log(df_swapped: pl.DataFrame,
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> int:
-    args = parse_args()
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+@app.default
+def main(
+    *,
+    report: Path,
+    annotation: Path,
+    out_dir: Path,
+    swap_fraction: float = 0.05,
+    min_precursors: int = 2,
+    min_log2fc: float = 0.5,
+    good_rule: GoodRule | None = None,
+    blank_condition: str = "blank",
+    seed: int = 42,
+) -> int:
+    """Gold-standard precursor-intensity swap for a Spectronaut report.
 
-    report_stem = args.report.stem
-    out_report = args.out_dir / args.report.name
-    out_gt = args.out_dir / f"{report_stem}_swap_ground_truth.tsv"
-    out_tp = args.out_dir / f"{report_stem}_swap_true_positives.tsv"
-    out_grp = args.out_dir / f"{report_stem}_swap_group_annotation.csv"
+    Parameters
+    ----------
+    report
+        Spectronaut Report.tsv to read.
+    annotation
+        Annotation CSV with R.FileName + Condition (+ optional Label).
+    out_dir
+        Output directory; created if missing.
+    swap_fraction
+        Fraction of proteins to make Positive pair members. The matcher
+        targets `round(swap_fraction * n_proteins)` pairs.
+    min_precursors
+        Drop proteins with fewer precursors than this from the eligible
+        universe (Positives and Negatives).
+    min_log2fc
+        Minimum |log2(prot_mean_hi / prot_mean_lo)| a pair must exceed.
+        No upper bound; the matcher prefers pairs closest to this floor
+        and expands outward as needed.
+    good_rule
+        Restrict the abundance-reference run set used by
+        `compute_protein_stats`. `label_good` keeps annotation rows with
+        `Label == "Good"`; `neat_only` keeps R.FileName matching
+        "NeatCSF". Default `None` uses all non-blank runs. Mirrors
+        `src/build_subsets.py --good-rule` so the pair-level log2fc is
+        measured on the same subset the good_data benchmark uses.
+    blank_condition
+        R.Condition value identifying blank runs (excluded from stats
+        and output groups).
+    seed
+        RNG seed for the matcher's tie-break shuffle and the G1/G2 split.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    df = load_report(args.report)
+    report_stem = report.stem
+    out_report = out_dir / report.name
+    out_gt = out_dir / f"{report_stem}_swap_ground_truth.tsv"
+    out_tp = out_dir / f"{report_stem}_swap_true_positives.tsv"
+    out_grp = out_dir / f"{report_stem}_swap_group_annotation.csv"
+
+    df = load_report(report)
     original_cols = df.columns
     original_rows = df.height
 
@@ -624,23 +645,22 @@ def main() -> int:
     # the full dilution series, which can make pair-level log2fc and the
     # realized per-protein Cond1-Cond2 effect diverge.
     reference_runs: list[str] | None = None
-    if args.good_rule is not None:
-        ann_for_filter = pl.read_csv(args.annotation)
-        good_runs = filter_runs_by_good_rule(ann_for_filter, args.good_rule)
+    if good_rule is not None:
+        ann_for_filter = pl.read_csv(annotation)
+        good_runs = filter_runs_by_good_rule(ann_for_filter, good_rule)
         reference_runs = good_runs[COL_RUN].to_list()
-        print(f"[stats] --good-rule={args.good_rule}: restricting reference "
+        print(f"[stats] --good-rule={good_rule}: restricting reference "
               f"runs to {len(reference_runs)} of {ann_for_filter.height}",
               file=sys.stderr)
 
     prot_stats, prec_mean, pep_mean = compute_protein_stats(
-        df, args.blank_condition, min_precursors=args.min_precursors,
+        df, blank_condition, min_precursors=min_precursors,
         reference_runs=reference_runs,
     )
     print(f"[stats] {prot_stats.height} proteins after n_precursors >= "
-          f"{args.min_precursors} filter", file=sys.stderr)
+          f"{min_precursors} filter", file=sys.stderr)
 
-    pairs = build_pairs(prot_stats, args.swap_fraction,
-                        args.min_log2fc, args.seed)
+    pairs = build_pairs(prot_stats, swap_fraction, min_log2fc, seed)
     if pairs.height == 0:
         print("[error] no pairs survived selection — adjust --min-log2fc or "
               "--min-precursors", file=sys.stderr)
@@ -653,7 +673,7 @@ def main() -> int:
     print(f"[ranks] matched peptide pairs:   {pep_match.height} "
           f"(dropped {dropped_peptides.height})", file=sys.stderr)
 
-    groups = assign_groups(df, args.blank_condition, args.seed)
+    groups = assign_groups(df, blank_condition, seed)
 
     df_swapped = apply_swap(df, groups, pairs, prec_match, pep_match,
                             dropped_precursors, dropped_peptides)
@@ -696,8 +716,8 @@ def main() -> int:
     # So we rewrite the annotation's Condition column from the swap group
     # assignment: G1 -> Condition1, G2 -> Condition2. Other columns
     # (BioReplicate, Order, Label) come from the input annotation unchanged.
-    out_annotation = args.out_dir / "annotation.csv"
-    ann_orig = pl.read_csv(args.annotation)
+    out_annotation = out_dir / "annotation.csv"
+    ann_orig = pl.read_csv(annotation)
     ann_new = (
         groups.select(["R.FileName", "group"])
               .with_columns(
@@ -725,17 +745,17 @@ def main() -> int:
               .alias("Label")
         )
     )
-    out_swap_list = args.out_dir / "CSF_protein_swap_list.csv"
+    out_swap_list = out_dir / "CSF_protein_swap_list.csv"
     print(f"[write] {out_swap_list}", file=sys.stderr)
     swap_list.write_csv(out_swap_list)
 
     # End-of-run summary: TP/TN counts, median |log2FC|, median
     # within-group SDs for TP and TN. Computed on the swapped report
     # universe (whole Report.tsv, not the good_data subset).
-    summary_log(df_swapped, groups, swap_list, pairs, args.blank_condition)
+    summary_log(df_swapped, groups, swap_list, pairs, blank_condition)
 
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    app()

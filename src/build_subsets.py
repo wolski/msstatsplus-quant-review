@@ -27,30 +27,17 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
+from typing import Literal
 
+import cyclopts
 import polars as pl
 
-KNOWN_SUBSETS = ("all_data", "good_data", "small", "small_good_data")
-KNOWN_GOOD_RULES = ("label_good", "neat_only")
+Subset = Literal["all_data", "good_data", "small", "small_good_data"]
+GoodRule = Literal["label_good", "neat_only"]
 
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--report", required=True, type=Path)
-    p.add_argument("--annotation", required=True, type=Path)
-    p.add_argument("--out-dir", required=True, type=Path)
-    p.add_argument("--subsets", required=True, nargs="+", choices=KNOWN_SUBSETS)
-    p.add_argument("--good-rule", choices=KNOWN_GOOD_RULES,
-                   help="Required if 'good_data' or 'small_good_data' is in --subsets.")
-    p.add_argument("--seed", type=int, default=123)
-    p.add_argument("--small-n", type=int, default=5,
-                   help="Runs per Condition for 'small' subset.")
-    p.add_argument("--small-good-n", type=int, default=4,
-                   help="Runs per Condition for 'small_good_data' subset.")
-    return p.parse_args()
+app = cyclopts.App(name="build-subsets", help=__doc__)
 
 
 def drop_blanks(annotation: pl.DataFrame, report: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -91,43 +78,76 @@ def write_subset(annotation: pl.DataFrame, report: pl.DataFrame,
           file=sys.stderr)
 
 
-def main() -> int:
-    args = parse_args()
+@app.default
+def main(
+    *,
+    report: Path,
+    annotation: Path,
+    out_dir: Path,
+    subsets: list[Subset],
+    good_rule: GoodRule | None = None,
+    seed: int = 123,
+    small_n: int = 5,
+    small_good_n: int = 4,
+) -> int:
+    """Slice a Spectronaut report + annotation into subset directories.
 
-    needs_good_rule = any(s in args.subsets for s in ("good_data", "small_good_data"))
-    if needs_good_rule and args.good_rule is None:
-        print("error: --good-rule is required when --subsets contains good_data or small_good_data",
-              file=sys.stderr)
+    Parameters
+    ----------
+    report
+        Spectronaut Report.tsv to read.
+    annotation
+        Annotation CSV with R.FileName + Condition (+ optional Label).
+    out_dir
+        Output directory; subset folders created under it.
+    subsets
+        One or more subsets to materialise. Pass multiple times,
+        e.g. `--subsets all_data --subsets good_data`.
+    good_rule
+        Required when `--subsets` contains `good_data` or
+        `small_good_data`. `label_good` keeps Label=="Good";
+        `neat_only` keeps R.FileName matching "NeatCSF".
+    seed
+        RNG seed for stratified-sample subsets.
+    small_n
+        Runs per Condition in the `small` subset.
+    small_good_n
+        Runs per Condition in the `small_good_data` subset.
+    """
+    needs_good_rule = any(s in subsets for s in ("good_data", "small_good_data"))
+    if needs_good_rule and good_rule is None:
+        print("error: --good-rule is required when --subsets contains "
+              "good_data or small_good_data", file=sys.stderr)
         return 2
 
-    print(f"[build_subsets] reading {args.report} ...", file=sys.stderr)
-    report = pl.read_csv(args.report, separator="\t",
-                         infer_schema_length=10000, ignore_errors=True)
-    print(f"[build_subsets] reading {args.annotation} ...", file=sys.stderr)
-    annotation = pl.read_csv(args.annotation)
+    print(f"[build_subsets] reading {report} ...", file=sys.stderr)
+    report_df = pl.read_csv(report, separator="\t",
+                             infer_schema_length=10000, ignore_errors=True)
+    print(f"[build_subsets] reading {annotation} ...", file=sys.stderr)
+    annotation_df = pl.read_csv(annotation)
 
-    annotation, report = drop_blanks(annotation, report)
+    annotation_df, report_df = drop_blanks(annotation_df, report_df)
 
-    if "all_data" in args.subsets:
-        write_subset(annotation, report, args.out_dir, "all_data")
+    if "all_data" in subsets:
+        write_subset(annotation_df, report_df, out_dir, "all_data")
 
     good = None
-    if "good_data" in args.subsets or "small_good_data" in args.subsets:
-        good = filter_good(annotation, args.good_rule)
+    if "good_data" in subsets or "small_good_data" in subsets:
+        good = filter_good(annotation_df, good_rule)
 
-    if "good_data" in args.subsets:
-        write_subset(good, report, args.out_dir, "good_data")
+    if "good_data" in subsets:
+        write_subset(good, report_df, out_dir, "good_data")
 
-    if "small" in args.subsets:
-        small = stratified_per_condition(annotation, args.small_n, args.seed)
-        write_subset(small, report, args.out_dir, "small")
+    if "small" in subsets:
+        small = stratified_per_condition(annotation_df, small_n, seed)
+        write_subset(small, report_df, out_dir, "small")
 
-    if "small_good_data" in args.subsets:
-        sgd = stratified_per_condition(good, args.small_good_n, args.seed)
-        write_subset(sgd, report, args.out_dir, "small_good_data")
+    if "small_good_data" in subsets:
+        sgd = stratified_per_condition(good, small_good_n, seed)
+        write_subset(sgd, report_df, out_dir, "small_good_data")
 
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    app()

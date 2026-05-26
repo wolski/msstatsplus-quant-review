@@ -5,15 +5,16 @@ description = "Gold-standard precursor-intensity swap for Spectronaut reports"
 requires-python = ">=3.10"
 dependencies = [
     "polars>=1.0",
+    "cyclopts>=3.0",
 ]
 
 # Console entry points exposed when the package is installed. After
 # `uv sync` (or `pip install -e .`) inside the venv these become
 # regular commands on $PATH, no `python src/...` needed.
 [project.scripts]
-swap-spectronaut-report         = "swap_spectronaut_report:main"
-swap-spectronaut-report-samples = "swap_spectronaut_report_samples:main"
-build-subsets                   = "build_subsets:main"
+swap-spectronaut-report         = "swap_spectronaut_report:app"
+swap-spectronaut-report-samples = "swap_spectronaut_report_samples:app"
+build-subsets                   = "build_subsets:app"
 
 [dependency-groups]
 dev = [
