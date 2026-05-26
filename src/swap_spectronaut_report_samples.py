@@ -29,7 +29,8 @@ from pathlib import Path
 import cyclopts
 import polars as pl
 
-app = cyclopts.App(name="swap-spectronaut-report-samples", help=__doc__)
+app = cyclopts.App(name="swap-spectronaut-report-samples", help=__doc__,
+                    help_on_error=True)
 
 COL_RUN = "R.FileName"
 COL_COND_RAW = "R.Condition"

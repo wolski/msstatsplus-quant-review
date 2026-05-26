@@ -37,7 +37,7 @@ import polars as pl
 Subset = Literal["all_data", "good_data", "small", "small_good_data"]
 GoodRule = Literal["label_good", "neat_only"]
 
-app = cyclopts.App(name="build-subsets", help=__doc__)
+app = cyclopts.App(name="build-subsets", help=__doc__, help_on_error=True)
 
 
 def drop_blanks(annotation: pl.DataFrame, report: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:

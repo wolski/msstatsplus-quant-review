@@ -38,7 +38,8 @@ PEP_COLS = ["PEP.Quantity"]
 PG_COLS = ["PG.Quantity"]
 
 
-app = cyclopts.App(name="swap-spectronaut-report", help=__doc__)
+app = cyclopts.App(name="swap-spectronaut-report", help=__doc__,
+                    help_on_error=True)
 
 
 GoodRule = Literal["label_good", "neat_only"]
