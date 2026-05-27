@@ -85,7 +85,7 @@ capture everything to `make.log`:
 make clean-prep
 
 # Long-running step: detached from terminal, stdout + stderr captured.
-nohup make -j4 -k all > make.log 2>&1 &
+nohup make -j5 -k all > make.log 2>&1 &
 
 # Watch progress live; Ctrl-C to detach (the build keeps running).
 tail -f make.log

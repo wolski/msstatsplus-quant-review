@@ -82,3 +82,8 @@ CSF_DIANN/
 K562_DIANN/
 K562_Spectronaut/
 TPCPA/
+
+# --- Test / coverage / Quarto-cache artifacts ---
+.coverage
+.pytest_cache/
+vignettes/*_cache/
