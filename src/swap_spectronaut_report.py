@@ -12,8 +12,6 @@ algorithmic plan this implements.
 
 from __future__ import annotations
 
-import json
-import shutil
 import sys
 from pathlib import Path
 from typing import Literal
@@ -306,37 +304,21 @@ def assign_groups(df: pl.DataFrame, blank_cond: str, seed: int) -> pl.DataFrame:
 # Step 7 — apply the swap
 # ---------------------------------------------------------------------------
 
-def apply_swap(
-    df: pl.DataFrame,
-    groups: pl.DataFrame,
-    pairs: pl.DataFrame,
-    prec_match: pl.DataFrame,
-    pep_match: pl.DataFrame,
-    dropped_precursors: pl.DataFrame,
-    dropped_peptides: pl.DataFrame,
-) -> pl.DataFrame:
-    # Tag every row with its group ("G1" / "G2" / null for blanks).
-    df = df.join(groups.select(COL_RUN, "group"), on=COL_RUN, how="left")
+# Identity columns that define "which protein / peptide / precursor a row
+# belongs to". The swap relabels these (in G2 only) to the rank-aligned
+# partner's identity; everything else on the row — intensities, RT, q-values,
+# fragment-ion annotations — rides along unchanged. Only the columns that
+# actually exist in the report are relabeled.
+IDENTITY_COLS = [
+    COL_PG, "PG.ProteinAccessions",
+    COL_PEP, "PEP.GroupingKey",
+    COL_PREC, "EG.ModifiedSequence", "FG.Charge",
+]
 
-    # Drop surplus precursors / peptides entirely (across all runs, all dilutions).
-    # TODO: scope this drop to the paired proteins only. Currently the filter
-    # removes the precursor/peptide IDs everywhere — if any dropped ID is
-    # shared with a non-pair (Negative) protein, that protein loses rows
-    # unfairly. Tryptic peptides are usually protein-specific so the
-    # real-world impact is small, but the filter should restrict to rows
-    # where PG.ProteinGroups is one of the pair members involved.
-    drop_prec_ids = set(dropped_precursors["item"].to_list())
-    drop_pep_ids = set(dropped_peptides["item"].to_list())
-    if drop_prec_ids:
-        df = df.filter(~pl.col(COL_PREC).is_in(list(drop_prec_ids)))
-    if drop_pep_ids:
-        df = df.filter(~pl.col(COL_PEP).is_in(list(drop_pep_ids)))
-    print(f"[swap] dropped {len(drop_prec_ids)} surplus precursors, "
-          f"{len(drop_pep_ids)} surplus peptides", file=sys.stderr)
 
-    # --- Build directional swap tables (each maps self -> partner) ---
-    # Precursor (and FG-level) swap: rank-matched precursor -> partner precursor.
-    prec_swap = pl.concat([
+def build_prec_swap(prec_match: pl.DataFrame) -> pl.DataFrame:
+    """Bidirectional precursor map: self_prec -> partner_prec."""
+    return pl.concat([
         prec_match.select(
             pl.col(f"{COL_PREC}_hi").alias("self_prec"),
             pl.col(f"{COL_PREC}_lo").alias("partner_prec"),
@@ -347,93 +329,80 @@ def apply_swap(
         ),
     ]).unique()
 
-    pep_swap = pl.concat([
-        pep_match.select(
-            pl.col(f"{COL_PEP}_hi").alias("self_pep"),
-            pl.col(f"{COL_PEP}_lo").alias("partner_pep"),
-        ),
-        pep_match.select(
-            pl.col(f"{COL_PEP}_lo").alias("self_pep"),
-            pl.col(f"{COL_PEP}_hi").alias("partner_pep"),
-        ),
-    ]).unique()
 
-    pg_swap = pl.concat([
-        pairs.select(
-            pl.col(f"{COL_PG}_hi").alias("self_pg"),
-            pl.col(f"{COL_PG}_lo").alias("partner_pg"),
-        ),
-        pairs.select(
-            pl.col(f"{COL_PG}_lo").alias("self_pg"),
-            pl.col(f"{COL_PG}_hi").alias("partner_pg"),
-        ),
-    ]).unique()
+def apply_swap(
+    df: pl.DataFrame,
+    groups: pl.DataFrame,
+    prec_match: pl.DataFrame,
+) -> pl.DataFrame:
+    """Apply the swap by RELABELLING identity columns in G2.
 
-    # --- Fragment rank within (run, precursor) ---
-    df = df.with_columns(
-        frag_rank=pl.col("F.PeakArea")
-                    .rank(method="ordinal", descending=True)
-                    .over([COL_RUN, COL_PREC])
-                    .cast(pl.Int32),
+    Instead of overwriting intensity columns in place (and dropping rows
+    where the rank-aligned partner had fewer fragments), this moves whole
+    rows between rank-aligned partner precursors by rewriting only their
+    identity columns:
+
+      * A G2 row that physically measured precursor Y (protein B) has its
+        identity columns rewritten to Y's rank-aligned partner X
+        (protein A). The row keeps Y's intensities, RT, q-values, fragment
+        annotations — it is now attributed to X.
+      * Symmetrically, X's G2 rows are relabelled to Y.
+
+    Because the swap is a relabelling of existing rows, it is exact and
+    symmetric:
+
+      * Nothing is created or destroyed — total row count is preserved and
+        every intensity value survives, just attributed to the partner.
+      * NA holes fill naturally: if X is undetected in a G2 run but Y is
+        detected, Y's rows get relabelled to X, so A gains data there and B
+        loses it — the symmetric outcome. No "drop because the partner was
+        NaN" asymmetry.
+      * Fragment-count mismatches need no special handling: a precursor's
+        whole set of fragment rows moves as a unit.
+
+    G1 rows are never touched. `prec_match` must contain the rank-aligned
+    `(EG.PrecursorId_hi, EG.PrecursorId_lo)` pairs.
+    """
+    id_cols = [c for c in IDENTITY_COLS if c in df.columns]
+    other_id = [c for c in id_cols if c != COL_PREC]
+
+    df = df.join(groups.select(COL_RUN, "group"), on=COL_RUN, how="left")
+
+    prec_swap = build_prec_swap(prec_match)
+
+    # One row per precursor with its (constant) identity-column values.
+    prec_identity = df.group_by(COL_PREC).agg([pl.first(c).alias(c) for c in other_id])
+
+    # For each self_prec, the partner precursor's identity, suffixed __new.
+    partner_identity = (
+        prec_swap
+        .join(prec_identity, left_on="partner_prec", right_on=COL_PREC, how="inner")
+        .rename({c: f"{c}__new" for c in other_id})
+        .with_columns(pl.col("partner_prec").alias(f"{COL_PREC}__new"))
+        .select(["self_prec", *[f"{c}__new" for c in id_cols]])
     )
 
-    # --- Build per-run partner intensity lookups ---
-    # Fragment- and FG-level partner table: keyed on (run, partner_prec, frag_rank)
-    df_partner_frag = df.select(
-        pl.col(COL_RUN),
-        pl.col(COL_PREC).alias("partner_prec"),
-        pl.col("frag_rank"),
-        *[pl.col(c).alias(c + "_NEW") for c in F_COLS + FG_COLS],
-    )
-
-    # Peptide-level partner: keyed on (run, partner_pep). PEP.Quantity is constant
-    # within (run, pep), so take first per group.
-    df_partner_pep = (
-        df.group_by([COL_RUN, COL_PEP]).agg(pl.col("PEP.Quantity").first())
-          .rename({COL_PEP: "partner_pep", "PEP.Quantity": "PEP.Quantity_NEW"})
-    )
-
-    # Protein-level partner: keyed on (run, partner_pg).
-    df_partner_pg = (
-        df.group_by([COL_RUN, COL_PG]).agg(pl.col("PG.Quantity").first())
-          .rename({COL_PG: "partner_pg", "PG.Quantity": "PG.Quantity_NEW"})
-    )
-
-    # --- Apply the swap: only G2 rows whose precursor is in prec_swap ---
-    df = (
-        df.join(prec_swap, left_on=COL_PREC, right_on="self_prec", how="left")
-          .join(pep_swap, left_on=COL_PEP, right_on="self_pep", how="left")
-          .join(pg_swap, left_on=COL_PG, right_on="self_pg", how="left")
-    )
+    df = df.join(partner_identity, left_on=COL_PREC, right_on="self_prec", how="left")
 
     is_g2 = pl.col("group") == "G2"
+    n_swapped_rows = df.filter(is_g2 & pl.col(f"{COL_PREC}__new").is_not_null()).height
 
-    # Fragment + FG: join partner data at (run, partner_prec, frag_rank).
-    df = df.join(df_partner_frag, on=[COL_RUN, "partner_prec", "frag_rank"], how="left")
-
-    # Drop fragment rows that are G2-swapped but have no partner at their rank
-    # (their partner precursor has fewer fragments in that run).
-    mask_drop_frag = is_g2 & pl.col("partner_prec").is_not_null() & pl.col("F.PeakArea_NEW").is_null()
-    df = df.filter(~mask_drop_frag)
-
-    # Peptide partner
-    df = df.join(df_partner_pep, on=[COL_RUN, "partner_pep"], how="left")
-    # Protein partner
-    df = df.join(df_partner_pg, on=[COL_RUN, "partner_pg"], how="left")
-
-    # Apply: for G2 swapped rows, replace original with _NEW.
-    for c in F_COLS + FG_COLS + PEP_COLS + PG_COLS:
-        new_c = c + "_NEW"
+    # Relabel identity columns on G2 swap rows. Order matters: read all __new
+    # columns before overwriting (they were materialised by the join, so the
+    # per-column with_columns below is safe).
+    for c in id_cols:
+        nc = f"{c}__new"
         df = df.with_columns(
-            pl.when(is_g2 & pl.col(new_c).is_not_null())
-              .then(pl.col(new_c))
+            pl.when(is_g2 & pl.col(nc).is_not_null())
+              .then(pl.col(nc))
               .otherwise(pl.col(c))
               .alias(c)
         )
 
-    # Clean up helper columns
-    helper_cols = ["group", "partner_prec", "partner_pep", "partner_pg", "frag_rank",
-                   *[c + "_NEW" for c in F_COLS + FG_COLS + PEP_COLS + PG_COLS]]
+    print(f"[swap] relabelled {n_swapped_rows:,} G2 rows to their partner "
+          f"precursor identity (no rows dropped)", file=sys.stderr)
+
+    helper_cols = ["group", *[f"{c}__new" for c in id_cols]]
     df = df.drop([c for c in helper_cols if c in df.columns])
     return df
 
@@ -445,21 +414,16 @@ def apply_swap(
 def build_ground_truth(
     pairs: pl.DataFrame,
     prec_match: pl.DataFrame,
-    pep_match: pl.DataFrame,
-    dropped_precursors: pl.DataFrame,
-    dropped_peptides: pl.DataFrame,
     groups: pl.DataFrame,
-) -> tuple[pl.DataFrame, pl.DataFrame]:
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Per-pair ground truth + flat true-positive list + G1/G2 run map.
+
+    The relabelling swap drops nothing, so there are no dropped-precursor
+    or dropped-peptide lists to report — every paired precursor's rows are
+    moved to its partner. `n_precursors_used` therefore equals the pair's
+    `n_precursors`.
+    """
     n_prec_used = prec_match.group_by("pair_id").agg(n_precursors_used=pl.len())
-    n_pep_used = pep_match.group_by("pair_id").agg(n_peptides_used=pl.len())
-    dropped_prec_per_pair = (
-        dropped_precursors.group_by("pair_id")
-                          .agg(dropped_precursors=pl.col("item").unique().sort())
-    )
-    dropped_pep_per_pair = (
-        dropped_peptides.group_by("pair_id")
-                        .agg(dropped_peptides=pl.col("item").unique().sort())
-    )
 
     g_runs = (
         groups.group_by(COL_COND, "group")
@@ -469,14 +433,7 @@ def build_ground_truth(
 
     gt = (
         pairs.join(n_prec_used, on="pair_id", how="left")
-             .join(n_pep_used, on="pair_id", how="left")
-             .join(dropped_prec_per_pair, on="pair_id", how="left")
-             .join(dropped_pep_per_pair, on="pair_id", how="left")
-             .with_columns(
-                 expected_log2fc=pl.col("log2fc"),
-                 # The "hi" protein in the pair becomes DOWN-regulated in G2;
-                 # the "lo" protein becomes UP-regulated.
-             )
+             .with_columns(expected_log2fc=pl.col("log2fc"))
              .select(
                  "pair_id",
                  pl.col(f"{COL_PG}_hi").alias("PG_high"),
@@ -485,13 +442,14 @@ def build_ground_truth(
                  "n_peptides_hi",
                  "n_peptides_lo",
                  "n_precursors_used",
-                 "n_peptides_used",
                  "expected_log2fc",
-                 "dropped_precursors",
-                 "dropped_peptides",
              )
     )
 
+    # Direction (see apply_swap): in G2 the HIGH protein receives the LOW
+    # partner's intensities, so its Cond1-Cond2 difference is +log2fc
+    # ("down" in G2); the LOW protein receives the HIGH partner's
+    # intensities → "up" in G2 with -log2fc as the signed Cond1-Cond2 value.
     tp_up = gt.select(
         pl.col("PG_low").alias(COL_PG),
         pl.lit("up").alias("role"),
@@ -499,7 +457,6 @@ def build_ground_truth(
         pl.col("PG_high").alias("partner_PG"),
         pl.col("expected_log2fc").alias("expected_log2fc"),
         "n_precursors_used",
-        "n_peptides_used",
     )
     tp_down = gt.select(
         pl.col("PG_high").alias(COL_PG),
@@ -508,7 +465,6 @@ def build_ground_truth(
         pl.col("PG_low").alias("partner_PG"),
         (-pl.col("expected_log2fc")).alias("expected_log2fc"),
         "n_precursors_used",
-        "n_peptides_used",
     )
     tp = pl.concat([tp_up, tp_down]).sort([COL_PG])
     return gt, tp, g_runs
@@ -654,7 +610,7 @@ def main(
               f"runs to {len(reference_runs)} of {ann_for_filter.height}",
               file=sys.stderr)
 
-    prot_stats, prec_mean, pep_mean = compute_protein_stats(
+    prot_stats, prec_mean, _pep_mean = compute_protein_stats(
         df, blank_condition, min_precursors=min_precursors,
         reference_runs=reference_runs,
     )
@@ -667,25 +623,20 @@ def main(
               "--min-precursors", file=sys.stderr)
         return 1
 
-    prec_match, dropped_precursors = build_rank_pairs(pairs, prec_mean, COL_PREC, "prec_mean")
-    pep_match, dropped_peptides = build_rank_pairs(pairs, pep_mean, COL_PEP, "pep_mean")
-    print(f"[ranks] matched precursor pairs: {prec_match.height} "
-          f"(dropped {dropped_precursors.height})", file=sys.stderr)
-    print(f"[ranks] matched peptide pairs:   {pep_match.height} "
-          f"(dropped {dropped_peptides.height})", file=sys.stderr)
+    prec_match, _dropped_precursors = build_rank_pairs(pairs, prec_mean, COL_PREC, "prec_mean")
+    print(f"[ranks] matched precursor pairs: {prec_match.height}", file=sys.stderr)
 
     groups = assign_groups(df, blank_condition, seed)
 
-    df_swapped = apply_swap(df, groups, pairs, prec_match, pep_match,
-                            dropped_precursors, dropped_peptides)
+    df_swapped = apply_swap(df, groups, prec_match)
 
     # Restore column order to match the input exactly.
     df_swapped = df_swapped.select(original_cols)
-    print(f"[out] {df_swapped.height:,} rows ({original_rows - df_swapped.height:,} dropped)",
+    print(f"[out] {df_swapped.height:,} rows "
+          f"({original_rows - df_swapped.height:,} delta vs input — expect 0)",
           file=sys.stderr)
 
-    gt, tp, g_runs = build_ground_truth(pairs, prec_match, pep_match,
-                                         dropped_precursors, dropped_peptides, groups)
+    gt, tp, g_runs = build_ground_truth(pairs, prec_match, groups)
 
     print(f"[write] {out_report}", file=sys.stderr)
     df_swapped.write_csv(out_report, separator="\t", null_value="NaN",
@@ -693,17 +644,7 @@ def main(
                           line_terminator="\r\n")
 
     print(f"[write] {out_gt}", file=sys.stderr)
-    def _list_to_json(x: object) -> str:
-        # Polars list-column cells come through as pl.Series (not list) under
-        # polars >= 1.x; coerce to a Python list before json.dumps. `x or []`
-        # used to work here but raises on a Series ("truth value is ambiguous").
-        if x is None:
-            return "[]"
-        return json.dumps(list(x))
-    gt.with_columns(
-        pl.col("dropped_precursors").map_elements(_list_to_json, return_dtype=pl.String),
-        pl.col("dropped_peptides").map_elements(_list_to_json, return_dtype=pl.String),
-    ).write_csv(out_gt, separator="\t")
+    gt.write_csv(out_gt, separator="\t")
 
     print(f"[write] {out_tp}", file=sys.stderr)
     tp.write_csv(out_tp, separator="\t")

@@ -14,18 +14,16 @@ from swap_spectronaut_report import (
 
 def _run_pipeline(tiny_report: pl.DataFrame, min_log2fc: float = 0.5,
                     swap_fraction: float = 1.0, seed: int = 1):
-    prot_stats, prec_mean, pep_mean = compute_protein_stats(
+    prot_stats, prec_mean, _pep_mean = compute_protein_stats(
         tiny_report, blank_cond="blank", min_precursors=2,
     )
     pairs = build_pairs(prot_stats, swap_fraction=swap_fraction,
                           min_log2fc=min_log2fc, seed=seed)
     if pairs.height == 0:
         pytest.skip("pipeline produced no pairs on this fixture")
-    prec_match, dropped_prec = build_rank_pairs(pairs, prec_mean, "EG.PrecursorId", "prec_mean")
-    pep_match,  dropped_pep  = build_rank_pairs(pairs, pep_mean,  "PEP.StrippedSequence", "pep_mean")
+    prec_match, _dropped = build_rank_pairs(pairs, prec_mean, "EG.PrecursorId", "prec_mean")
     groups = assign_groups(tiny_report, blank_cond="blank", seed=seed)
-    swapped = apply_swap(tiny_report, groups, pairs, prec_match, pep_match,
-                          dropped_prec, dropped_pep)
+    swapped = apply_swap(tiny_report, groups, prec_match)
     return tiny_report, swapped, groups, pairs, prec_match
 
 
